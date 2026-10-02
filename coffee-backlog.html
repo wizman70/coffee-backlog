@@ -1,0 +1,3047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coffee Backlog</title>
+<meta name="description" content="Bag inventory, brew log and equipment cabinet. Everything stays in your browser.">
+<meta name="color-scheme" content="light only">
+
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  COFFEE BACKLOG — standalone build.
+
+  One file. Open it from a URL and it works; there is no server, no account,
+  and nothing leaves the machine it is opened on. Everything a visitor logs is
+  written to that browser's localStorage under three keys: coffee-bags,
+  coffee-brews, coffee-cabinet.
+
+  HOW THIS IS PUT TOGETHER
+  React and ReactDOM load from a CDN as globals. The app below is JSX and is
+  compiled in the browser by Babel Standalone at load, which is why the whole
+  thing stays editable as plain text: you can open this file, change a string,
+  and reload. The cost is a ~0.5s compile on every page load. If that ever
+  matters more than editability, the JSX can be precompiled ahead of time and
+  Babel dropped entirely.
+
+  SERVE IT OVER HTTP, NOT file://
+  Chrome gives file:// pages an opaque origin and localStorage behaves
+  erratically or gets discarded — which defeats the entire point. Any static
+  host works: Netlify Drop, GitHub Pages, Cloudflare Pages.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
+
+<style>
+  html, body { margin: 0; padding: 0; background: #EFEDE4; }
+  /* Shown until Babel finishes compiling and React mounts over it. Deliberately
+     plain: the arcade font has not loaded this early and a styled flash of the
+     wrong thing reads worse than a quiet line of text. */
+  #boot { font-family: monospace; color: #8F8676; font-size: 13px; padding: 28px 24px; }
+  #boot-fail { display: none; font-family: monospace; color: #9C4A1A; font-size: 13px;
+               padding: 28px 24px; line-height: 1.6; max-width: 46em; }
+</style>
+</head>
+<body>
+
+<div id="root"><div id="boot">Loading…</div></div>
+
+<div id="boot-fail">
+  <strong>This page needs to reach a CDN and it couldn't.</strong><br>
+  React and Babel are loaded from unpkg.com. If you are offline, or a network
+  blocks it, the app can't start. Your saved data is untouched — it is in this
+  browser's storage and will reappear once the page loads normally.
+</div>
+
+<noscript>
+  <div style="font-family: monospace; padding: 28px 24px; color: #9C4A1A;">
+    Coffee Backlog needs JavaScript. Everything runs locally in your browser —
+    there is no server doing the work.
+  </div>
+</noscript>
+
+<script>
+  // If the CDN never arrives, say so instead of leaving "Loading…" forever.
+  window.addEventListener("load", function () {
+    if (!window.React || !window.ReactDOM || !window.Babel) {
+      var root = document.getElementById("root");
+      if (root) root.style.display = "none";
+      document.getElementById("boot-fail").style.display = "block";
+    }
+  });
+</script>
+
+<script type="text/babel" data-presets="react">
+// ═══════════════════════════════════════════════════════════════════════════
+// COFFEE BACKLOG — bag inventory, brew log, and equipment cabinet.
+// Single-file React artifact. Runs inside a Claude artifact only (see STORAGE).
+//
+// ── HOUSE RULES (follow these when adding anything) ───────────────────────
+// 1. VERTICAL STRETCH. Press Start 2P is drawn on a square grid and reads
+//    squat at native proportions. EVERY new heading, title, section label or
+//    arcade-font button gets `transform: scaleY(...)` of AT LEAST 1.2 — use
+//    D.stretch. Do NOT stretch body copy, secondary detail lines, helper text,
+//    field labels, or data values. This is a standing preference, not a
+//    one-off: a new heading added later without a stretch is a bug.
+// 2. TYPE PAIRING. Press Start 2P for display/headings/buttons only. VT323 for
+//    everything else. No third font.
+// 3. CORNERS. Square everywhere, on purpose — it is the 8-bit read. The only
+//    rounded things are the folder tabs, the folder body, and the New/Data
+//    buttons (D.folder). Do not "tidy up" other corners with a radius.
+// 4. SHADOWS. Hard offset blocks (`4px 4px 0 <ink>`), never blurred.
+// 5. CARD GRID IS A SOLVED EQUATION, not a guess. See D.card. Changing the
+//    column count or card width without re-solving the others clips the cards.
+// 6. FIXED CARD HEIGHTS. Backlog cards are a fixed height with a fixed-height
+//    face block; that is what keeps the dashed divider from moving card to
+//    card. Long text truncates with an ellipsis rather than wrapping — do not
+//    "fix" that by letting cards grow.
+// 7. DETAIL LIVES IN POPUPS, not in expanding cards. Both the backlog and brew
+//    tabs deliberately moved away from inline expansion.
+// 8. SAVES ARE OPTIMISTIC. Update state and close the modal immediately; the
+//    storage write happens in the background. Never await it in a handler.
+//
+// ── STORAGE ──────────────────────────────────────────────────────────────
+// Persistence uses `localStorage` through the `storage` adapter defined below.
+// Keys: "coffee-bags", "coffee-brews", "coffee-cabinet".
+//
+// Data is per-browser-profile and per-origin. Two people opening the same link
+// get two separate logs; the same person in Chrome and Safari also gets two.
+// Nothing is ever sent anywhere. The in-app Data button is the ONLY way to move
+// a log between browsers, devices or copies of this file.
+//
+// NOTE: this build no longer runs as a Claude artifact — the artifact sandbox
+// forbids localStorage. Iterate on the artifact version if you need the live
+// preview, and treat this file as the shipping build.
+//
+// ── EDITING THIS FILE ────────────────────────────────────────────────────
+// It is long (~1500 lines) and lives inside the <script type="text/babel">
+// block of coffee-backlog.html. Prefer targeted string edits over regenerating
+// the whole thing; a full rewrite risks silently dropping features. After any
+// edit, re-check that the numbers in D are still referenced rather than
+// re-inlined.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const { useState, useEffect, useRef } = React;
+
+// ═══════════════════════════════════════════════════════════════════
+// STORAGE ADAPTER
+// Mirrors the shape of the Claude-artifact `window.storage` API so the call
+// sites below are unchanged: get() returns {key, value} or null, set() returns
+// {key, value}. Both are synchronous, which is harmless — awaiting a plain
+// value is legal, so the existing `await` and .catch() patterns still hold.
+//
+// Every method is wrapped: Safari in Private Browsing throws on setItem rather
+// than failing quietly, and a disabled-cookies setting makes localStorage
+// itself unreachable. A throw here surfaces as the app's normal save-error
+// banner instead of a white screen.
+// ═══════════════════════════════════════════════════════════════════
+const storage = {
+  get(key) {
+    const value = localStorage.getItem(key);
+    return value === null ? null : { key, value };
+  },
+  // set() MUST return a promise, not a plain value. The save handlers wrap it in
+  // `Promise.resolve(...).catch(...)`; if setItem threw synchronously the throw
+  // would happen while evaluating the argument, before Promise.resolve ever ran,
+  // so the .catch() would never fire and the handler would blow up instead of
+  // showing the save-error banner. Returning a rejected promise routes the
+  // failure back into the path the app already has for it.
+  set(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return Promise.resolve({ key, value });
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  },
+};
+
+// ————— Design tokens: "cupping lab logbook" —————
+const T = {
+  paper: "#EFEDE4",
+  card: "#F7F5EE",
+  ink: "#2B2118",
+  inkSoft: "#5C5245",
+  bean: "#55632A",
+  beanSoft: "#8A9660",
+  rust: "#9C4A1A",
+  line: "#D8D3C4",
+  muted: "#8F8676",
+  brown: "#6B4A2B",
+  brownBg: "#E6DCCD",
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// DESIGN TOKENS — every number here was tuned by eye, not guessed.
+// Change values here rather than inline, and keep the relationships noted below.
+// ═══════════════════════════════════════════════════════════════════
+const D = {
+  // Press Start 2P is drawn on a square grid, so display text reads squat unless
+  // stretched vertically. Anything that acts as a heading gets at least 1.2.
+  // Body copy, secondary detail lines and helper text are never stretched.
+  stretch: {
+    pageTitle: 1.2,      // THE BACKLOG / THE BREW LOG / THE CABINET
+    cardTitle: 1.4,      // roaster names, brew method label
+    heading: 1.2,        // section headings, modal titles
+    button: 1.2,         // all arcade-font buttons and tabs
+  },
+
+  // Card grid. The folder interior is exactly wide enough for one row:
+  //   1080 page − 4 border − 44 padding = 1032
+  //   4 × 246 + 3 × 16                  = 1032
+  // Changing any one of these means re-solving the others or the cards clip.
+  card: {
+    width: 246,
+    height: 172,         // fixed, so the dashed divider never moves between cards
+    archivedHeight: 138, // archived cards drop the weight line and the RESTED row, so they sit shorter
+    faceHeight: 96,      // the top block; fixing this is what pins the divider
+    archivedFaceHeight: 80, // one fewer detail line (no weight) on archived cards
+    gap: 16,
+    // The grid is `auto-fill, minmax(min(100%, width), 1fr)`, so `columns` is no
+    // longer a hard count — it is what the folder fits at full desktop width
+    // (1032 / 246+16). Below 1080 the grid drops to 3, 2 then 1 column on its own.
+    columns: 4,
+    padding: "11px 14px",
+  },
+
+  cabinetCardMinHeight: 58,
+
+  // Folder chrome
+  folder: {
+    radius: 10,          // folder body corners
+    tabRadius: 9,        // tab tops and the New/Data buttons
+    border: 2,
+    overlap: -4,         // how far tabs tuck behind each other
+    btnShadow: 3,        // hard offset under the New button. Doubles as its right
+                         // inset, so the shadow stops ON the folder's right outline
+                         // rather than hanging past it.
+  },
+
+  page: { maxWidth: 1080, padding: 22 },
+
+  // Optical corrections. Each of these was arrived at by looking at the screen,
+  // not by calculation — if you change a font size or a stretch value nearby,
+  // re-check the one that pairs with it rather than assuming it still holds.
+  micro: {
+    countLineIndent: 5,     // VT323 starts inside its box; Press Start 2P doesn't,
+                            // so the subtitle needs pushing right to look flush
+    methodIconLift: -3,     // the pourover cone sits low in its 12x12 grid
+    dividerGapTop: 2,       // above the dashed rule; below it is 7px of padding
+                            // and these must look equal, not measure equal
+    restedIndent: 0,        // RESTED sits flush under ROASTED
+  },
+
+  // Flags render at one size everywhere; the roaster flag is 1.5x with a manual
+  // 4px drop because the 1.4 text stretch shifts the optical centre down.
+  // That drop is ONLY correct where the roaster name stretches from `left top`
+  // (the backlog card), which grows the glyphs downward and pushes their optical
+  // centre below the layout box flex centres on. Where the name stretches from
+  // `center` (the bag and brew popups) the centre does not move, so those flags
+  // take no nudge at all — adding one just parks them below the text.
+  flag: { size: 16, roasterScale: 1.5, roasterNudge: 4 },
+};
+
+const FONTS = `
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+.ci-card { transition: background .12s, box-shadow .12s, transform .12s; }
+.ci-card:hover { background: #ECE9DD !important; border-color: #55632A !important; transform: translate(-2px, -2px); box-shadow: 4px 4px 0 #2B2118; }
+.ci-card:focus-visible { outline: 2px solid #55632A; outline-offset: 2px; }
+.ci-btn:hover { filter: brightness(1.12); }
+input:focus, select:focus { outline: 2px solid #55632A; outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+`;
+
+// ————— 8-bit date picker, housed in a little manila folder —————
+const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+const MONTHS_SHORT = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function PixelCalendar({ value, onPick, onClose }) {
+  const initial = value ? new Date(value + "T00:00:00") : new Date();
+  const [view, setView] = useState(new Date(initial.getFullYear(), initial.getMonth(), 1));
+  const today = ymd(new Date());
+
+  const year = view.getFullYear();
+  const month = view.getMonth();
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  while (cells.length % 7) cells.push(null);
+
+  const shift = (delta) => setView(new Date(year, month + delta, 1));
+
+  const navBtn = {
+    background: "none",
+    border: `2px solid ${T.ink}`,
+    borderRadius: 4,
+    color: T.ink,
+    cursor: "pointer",
+    fontFamily: "'Press Start 2P', monospace",
+    fontSize: 9,
+    lineHeight: 1,
+    padding: "6px 8px",
+    transform: `scaleY(${D.stretch.button})`,
+    transformOrigin: "center",
+  };
+
+  return (
+    <div style={{ position: "absolute", top: "calc(100% + 10px)", left: 0, zIndex: 60, width: 236 }}>
+      {/* folder tab */}
+      <div
+        style={{
+          width: 74,
+          height: 12,
+          marginLeft: 10,
+          background: T.card,
+          border: `2px solid ${T.ink}`,
+          borderBottom: "none",
+          borderRadius: "7px 7px 0 0",
+        }}
+      />
+      {/* folder body */}
+      <div
+        style={{
+          background: T.card,
+          border: `2px solid ${T.ink}`,
+          borderRadius: "0 8px 8px 8px",
+          padding: 10,
+          marginTop: -2,
+          boxShadow: `5px 5px 0 rgba(43,33,24,0.45)`,
+        }}
+      >
+        {/* month bar */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 9 }}>
+          <button type="button" onClick={() => shift(-1)} style={navBtn}>{"<"}</button>
+          <span
+            style={{
+              fontFamily: "'Press Start 2P', monospace",
+              fontSize: 9,
+              color: T.ink,
+              transform: `scaleY(${D.stretch.button})`,
+              transformOrigin: "center",
+              display: "inline-block",
+            }}
+          >
+            {MONTHS_SHORT[month]} {year}
+          </span>
+          <button type="button" onClick={() => shift(1)} style={navBtn}>{">"}</button>
+        </div>
+
+        {/* weekday header */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 3 }}>
+          {DOW.map((d, i) => (
+            <span
+              key={i}
+              style={{
+                textAlign: "center",
+                fontFamily: "'VT323', monospace",
+                fontSize: 14,
+                color: T.bean,
+                letterSpacing: "0.04em",
+              }}
+            >
+              {d}
+            </span>
+          ))}
+        </div>
+
+        {/* day grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+          {cells.map((day, i) => {
+            if (day === null) return <span key={i} />;
+            const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const selected = value === iso;
+            const isToday = today === iso;
+            const future = iso > today;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => { onPick(iso); onClose(); }}
+                style={{
+                  aspectRatio: "1 / 1",
+                  background: selected ? T.bean : "transparent",
+                  border: `1px solid ${selected ? T.bean : isToday ? T.rust : "transparent"}`,
+                  borderRadius: 0,
+                  color: selected ? T.card : future ? T.line : T.ink,
+                  cursor: "pointer",
+                  fontFamily: "'VT323', monospace",
+                  fontSize: 16,
+                  lineHeight: 1,
+                  padding: 0,
+                }}
+              >
+                {day}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* footer */}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 6, marginTop: 9, paddingTop: 8, borderTop: `1px dashed ${T.line}` }}>
+          <button
+            type="button"
+            onClick={() => { onPick(today); onClose(); }}
+            style={{ ...navBtn, border: `2px solid ${T.bean}`, color: T.bean }}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => { onPick(""); onClose(); }}
+            style={{ ...navBtn, border: `2px solid ${T.line}`, color: T.muted }}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Processing names run long and would wrap the fixed-height card face,
+// pushing the weight line out of view. Abbreviate for cards; popups show the full name.
+const PROCESS_ABBR = [
+  [/triple\s+fermentation/gi, "Tri Ferm."],
+  [/double\s+fermentation/gi, "Dbl Ferm."],
+  [/thermal\s+shock/gi, "Therm-S."],
+  [/carbonic\s+maceration/gi, "Carb. Mac."],
+  [/anaerobic/gi, "An."],
+  [/fermentation|fermented/gi, "Ferm."],
+  [/experimental/gi, "Exp."],
+  [/yeast\s+inoculated/gi, "Yeast Inoc."],
+  [/extended/gi, "Ext."],
+  [/swiss\s+water/gi, "SW"],
+  [/wet[-\s]?hulled/gi, "Wet-Hull."],
+  [/maceration/gi, "Mac."],
+  [/washed/gi, "Washed"],
+];
+
+function shortProcess(raw) {
+  if (!raw) return "";
+  let out = raw.trim();
+  PROCESS_ABBR.forEach(([re, rep]) => { out = out.replace(re, rep); });
+  return out.replace(/\s+/g, " ").trim();
+}
+
+const EMPTY_FORM = {
+  roaster: "",
+  roasterCountry: "",
+  machine: "",
+  origin: "",
+  producer: "",
+  altitude: "",
+  variety: "",
+  processing: "",
+  weight: "",
+  roastDate: "",
+};
+
+const FIELDS = [
+  { key: "roaster", label: "Name of the roaster", placeholder: "e.g. George Howell", required: true },
+  { key: "roasterCountry", label: "Roaster country", placeholder: "e.g. United States" },
+  { key: "machine", label: "Roasting machine", placeholder: "e.g. Loring S35 Kestrel" },
+  { key: "origin", label: "Country of origin", placeholder: "e.g. Ethiopia" },
+  { key: "producer", label: "Farmer / Producer", placeholder: "e.g. Dukale Family Farm" },
+  { key: "altitude", label: "Altitude", placeholder: "e.g. 1,900–2,100 masl" },
+  { key: "variety", label: "Bean variety", placeholder: "e.g. Heirloom, SL28, Gesha" },
+  { key: "processing", label: "Processing", placeholder: "e.g. Washed", list: true },
+  { key: "weight", label: "Bag weight", placeholder: "e.g. 340, 12 oz, 1 lb" },
+  { key: "roastDate", label: "Roast date", type: "date" },
+];
+
+const PROCESS_OPTIONS = ["Washed", "Natural", "Honey", "Anaerobic", "Carbonic maceration", "Wet-hulled", "Decaf (EA)", "Decaf (Swiss Water)"];
+
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d)) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+// Weight is always displayed in grams. Accepts g, kg, oz, lb (and bare numbers, read as grams).
+const G_PER = { g: 1, gram: 1, grams: 1, gr: 1, kg: 1000, kilo: 1000, kilos: 1000, kilogram: 1000, kilograms: 1000,
+  oz: 28.3495, ounce: 28.3495, ounces: 28.3495, lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592 };
+
+function toGrams(raw) {
+  if (!raw) return null;
+  const m = String(raw).trim().toLowerCase().replace(",", ".").match(/^([\d.]+)\s*([a-z]*)\.?$/);
+  if (!m) return null;
+  const value = parseFloat(m[1]);
+  if (!isFinite(value)) return null;
+  const unit = m[2] || "g"; // bare number means grams
+  const factor = G_PER[unit];
+  return factor ? value * factor : null;
+}
+
+// Grams left in a bag = what was logged, minus every dose brewed from it.
+// Derived rather than stored, so deleting a brew puts the coffee back.
+function gramsUsed(bagId, brews) {
+  return brews.reduce((sum, x) => (x.bagId === bagId && x.recipe ? sum + (parseFloat(x.recipe.dose) || 0) : sum), 0);
+}
+
+function remainingGrams(bag, brews) {
+  const start = toGrams(bag.weight);
+  if (start === null) return null;
+  return Math.max(0, start - gramsUsed(bag.id, brews));
+}
+
+function formatWeight(raw) {
+  const g = toGrams(raw);
+  if (g === null) return raw || "";       // unparseable: show exactly what was typed
+  return `${Math.round(g)} g`;
+}
+
+// ————— Tasting radar (categories from the flavour wheel, UI after the French cupping chart) —————
+const TASTE_AXES = [
+  "Stone Fruit", "Citrus Fruit", "Berry Fruit", "Tropical Fruit", "Funk", "Body",
+  "Tea", "Herbal", "Floral", "Spice", "Sweetness", "Acidity",
+];
+
+const EMPTY_TASTING = TASTE_AXES.reduce((acc, k) => ({ ...acc, [k]: 0 }), {});
+
+// The "Funky" axis was renamed to "Funk". Tasting scores are keyed by axis name,
+// so a review saved before the rename still carries its score under "Funky" and
+// would read as 0 on the radar. Move it across on load and on import; a brew that
+// somehow has both keys keeps the newer one.
+function migrateBrews(list) {
+  return (list || []).map((b) => {
+    if (!b || !b.tasting || !("Funky" in b.tasting)) return b;
+    const { Funky, ...rest } = b.tasting;
+    return { ...b, tasting: { ...rest, Funk: rest.Funk != null ? rest.Funk : Funky } };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AUTO-SAVE TO A LOCAL FILE
+// A page cannot write to a path on its own — browsers forbid it. The File
+// System Access API is the one exception: the user hands the page ONE file
+// through a native dialog, and from then on the page may rewrite that exact
+// file silently. Chromium only (Chrome/Edge); Safari and Firefox have nothing
+// equivalent, which is why the copy/paste box above stays the universal path.
+//
+// The handle itself is structured-cloneable, so it goes in IndexedDB and the
+// link survives a reload. The PERMISSION does not survive — Chrome downgrades
+// it to "prompt" on a fresh page load — so a returning visit needs one click
+// to resume. That is a browser rule, not something the app can opt out of.
+// ═══════════════════════════════════════════════════════════════════
+const AUTOSAVE_DB = "coffee-backlog-autosave";
+const AUTOSAVE_STORE = "handles";
+const AUTOSAVE_KEY = "backup-file";
+
+// Embedded (an artifact iframe, say) means no file picker — the sandbox blocks it.
+function autosaveBlocked() {
+  try { return window.self !== window.top; } catch (e) { return true; }
+}
+
+function autosaveSupported() {
+  return typeof window !== "undefined" && typeof window.showSaveFilePicker === "function" && !autosaveBlocked();
+}
+
+function autosaveDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(AUTOSAVE_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(AUTOSAVE_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function autosaveGetHandle() {
+  return autosaveDB().then((db) => new Promise((resolve, reject) => {
+    const r = db.transaction(AUTOSAVE_STORE, "readonly").objectStore(AUTOSAVE_STORE).get(AUTOSAVE_KEY);
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror = () => reject(r.error);
+  }));
+}
+
+function autosavePutHandle(handle) {
+  return autosaveDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(AUTOSAVE_STORE, "readwrite");
+    tx.objectStore(AUTOSAVE_STORE).put(handle, AUTOSAVE_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
+function autosaveClearHandle() {
+  return autosaveDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(AUTOSAVE_STORE, "readwrite");
+    tx.objectStore(AUTOSAVE_STORE).delete(AUTOSAVE_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
+
+const RADAR = { vbW: 710, vbH: 560, cx: 355, cy: 284, r: 178, max: 5 };
+
+function axisPoint(i, value) {
+  const angle = (-90 + i * (360 / TASTE_AXES.length)) * (Math.PI / 180);
+  const dist = (value / RADAR.max) * RADAR.r;
+  return [RADAR.cx + Math.cos(angle) * dist, RADAR.cy + Math.sin(angle) * dist];
+}
+
+function ringPath(level) {
+  return TASTE_AXES.map((_, i) => axisPoint(i, level).join(",")).join(" ");
+}
+
+function TastingRadar({ scores, onChange }) {
+  const svgRef = useRef(null);
+  const [dragging, setDragging] = useState(null);
+  const [selected, setSelected] = useState(0);
+
+  useEffect(() => { svgRef.current?.focus(); }, []);
+
+  const bump = (delta) => {
+    const axis = TASTE_AXES[selected];
+    const next = Math.min(RADAR.max, Math.max(0, (scores[axis] || 0) + delta));
+    onChange({ ...scores, [axis]: Math.round(next * 2) / 2 });
+  };
+
+  const onKeyDown = (e) => {
+    const n = TASTE_AXES.length;
+    if (e.key === "ArrowRight") { setSelected((i) => (i + 1) % n); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { setSelected((i) => (i - 1 + n) % n); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { bump(e.shiftKey ? 1 : 0.5); e.preventDefault(); }
+    else if (e.key === "ArrowDown") { bump(e.shiftKey ? -1 : -0.5); e.preventDefault(); }
+    else if (e.key === "Home") { onChange({ ...scores, [TASTE_AXES[selected]]: 0 }); e.preventDefault(); }
+    else if (e.key === "End") { onChange({ ...scores, [TASTE_AXES[selected]]: RADAR.max }); e.preventDefault(); }
+  };
+
+  const valueFromEvent = (i, e) => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * RADAR.vbW;
+    const y = ((e.clientY - rect.top) / rect.height) * RADAR.vbH;
+    const angle = (-90 + i * (360 / TASTE_AXES.length)) * (Math.PI / 180);
+    // project the pointer onto this axis so dragging stays on-rail
+    const proj = (x - RADAR.cx) * Math.cos(angle) + (y - RADAR.cy) * Math.sin(angle);
+    const raw = (proj / RADAR.r) * RADAR.max;
+    return Math.min(RADAR.max, Math.max(0, Math.round(raw * 2) / 2)); // 0.5 steps
+  };
+
+  const apply = (i, e) => {
+    const v = valueFromEvent(i, e);
+    if (v !== null) onChange({ ...scores, [TASTE_AXES[i]]: v });
+  };
+
+  const total = TASTE_AXES.reduce((sum, k) => sum + (scores[k] || 0), 0);
+
+  return (
+    <div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${RADAR.vbW} ${RADAR.vbH}`}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        style={{ width: "100%", height: "auto", touchAction: "none", display: "block", outline: "none" }}
+        onPointerMove={(e) => { if (dragging !== null) apply(dragging, e); }}
+        onPointerUp={() => setDragging(null)}
+        onPointerLeave={() => setDragging(null)}
+      >
+        {/* concentric rings */}
+        {[1, 2, 3, 4, 5].map((lvl) => (
+          <polygon key={lvl} points={ringPath(lvl)} fill="none" stroke="#D8D3C4" strokeWidth="1" />
+        ))}
+
+        {/* spokes + diamond ring markers */}
+        {TASTE_AXES.map((axis, i) => {
+          const [ex, ey] = axisPoint(i, RADAR.max);
+          return (
+            <g key={axis}>
+              <line x1={RADAR.cx} y1={RADAR.cy} x2={ex} y2={ey} stroke="#D8D3C4" strokeWidth="1" />
+              {[1, 2, 3, 4, 5].map((lvl) => {
+                const [mx, my] = axisPoint(i, lvl);
+                return <rect key={lvl} x={mx - 2.5} y={my - 2.5} width="5" height="5" fill="#C9C3B2" transform={`rotate(45 ${mx} ${my})`} />;
+              })}
+            </g>
+          );
+        })}
+
+        {/* the trace */}
+        <polygon
+          points={TASTE_AXES.map((k, i) => axisPoint(i, scores[k] || 0).join(",")).join(" ")}
+          fill="#9C4A1A"
+          fillOpacity="0.14"
+          stroke="#9C4A1A"
+          strokeWidth="3.5"
+          strokeLinejoin="round"
+        />
+
+        {/* scale numbers up the top axis */}
+        {[0, 1, 2, 3, 4, 5].map((lvl) => {
+          const [, ly] = axisPoint(0, lvl);
+          return (
+            <text key={lvl} x={RADAR.cx - 9} y={ly + 5} textAnchor="end" fontFamily="'VT323', monospace" fontSize="17" fill="#8F8676">
+              {lvl}
+            </text>
+          );
+        })}
+
+        {/* wide invisible hit-rails + draggable handles */}
+        {TASTE_AXES.map((axis, i) => {
+          const [ex, ey] = axisPoint(i, RADAR.max);
+          const [hx, hy] = axisPoint(i, scores[axis] || 0);
+          const [rx, ry] = axisPoint(i, 0.55); // rails begin outside the crowded hub
+          return (
+            <g key={`h-${axis}`}>
+              <line
+                x1={rx} y1={ry} x2={ex} y2={ey}
+                stroke="transparent" strokeWidth="30" strokeLinecap="butt" style={{ cursor: "pointer" }}
+                onPointerDown={(e) => { e.currentTarget.releasePointerCapture?.(e.pointerId); setSelected(i); setDragging(i); apply(i, e); }}
+              />
+              <circle
+                cx={hx} cy={hy} r={dragging === i ? 10 : selected === i ? 9 : 7}
+                fill={dragging === i ? "#55632A" : "#9C4A1A"}
+                stroke={selected === i ? "#55632A" : "#F7F5EE"} strokeWidth={selected === i ? 3 : 2}
+                style={{ cursor: "grab" }}
+                onPointerDown={(e) => { setSelected(i); setDragging(i); }}
+              />
+            </g>
+          );
+        })}
+
+        {/* axis labels */}
+        {TASTE_AXES.map((axis, i) => {
+          const angle = (-90 + i * (360 / TASTE_AXES.length)) * (Math.PI / 180);
+          const lx = RADAR.cx + Math.cos(angle) * (RADAR.r + 34);
+          const ly = RADAR.cy + Math.sin(angle) * (RADAR.r + 34);
+          const anchor = Math.abs(Math.cos(angle)) < 0.25 ? "middle" : Math.cos(angle) > 0 ? "start" : "end";
+          const val = scores[axis] || 0;
+          const isSel = selected === i;
+          const size = isSel ? 25 : 19;
+          // stack multi-word labels so long ones don't run off the canvas
+          const words = axis.split(" ");
+          const lines = words.length > 1 && Math.abs(Math.cos(angle)) > 0.25 ? words : [axis];
+          const lineH = size + 2;
+          const top = ly - ((lines.length - 1) * lineH) / 2;
+          return (
+            <g key={`l-${axis}`}>
+              <text
+                x={lx}
+                y={top}
+                textAnchor={anchor}
+                fontFamily="'VT323', monospace"
+                fontSize={size}
+                letterSpacing={isSel ? "0.1em" : "0.06em"}
+                fill={isSel ? "#55632A" : "#2B2118"}
+                stroke={isSel ? "#55632A" : "none"}
+                strokeWidth={isSel ? 0.9 : 0}
+                paintOrder="stroke"
+              >
+                {lines.map((ln, li) => (
+                  <tspan key={li} x={lx} dy={li === 0 ? 0 : lineH}>
+                    {isSel && li === 0 ? `> ${ln}` : ln}
+                  </tspan>
+                ))}
+              </text>
+              <text
+                x={lx}
+                y={top + (lines.length - 1) * lineH + (isSel ? 21 : 15)}
+                textAnchor={anchor}
+                fontFamily="'VT323', monospace"
+                fontSize={isSel ? 21 : 16}
+                fill={isSel || val > 0 ? "#9C4A1A" : "#8F8676"}
+                stroke={isSel ? "#9C4A1A" : "none"}
+                strokeWidth={isSel ? 0.7 : 0}
+                paintOrder="stroke"
+              >
+                {val.toFixed(1)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <p style={{ fontSize: 16, color: "#8F8676", textAlign: "center", margin: "4px 0 0", letterSpacing: "0.04em" }}>
+        Drag or tap a spoke · ← → pick axis, ↑ ↓ adjust (shift = 1.0) · total {total.toFixed(1)}
+      </p>
+    </div>
+  );
+}
+
+// Read-only miniature of the tasting web, for the expanded brew card
+function MiniRadar({ scores }) {
+  const vbW = 310, vbH = 176, cx = 155, cy = 88, rad = 52;
+  const pt = (i, v) => {
+    const a = (-90 + i * (360 / TASTE_AXES.length)) * (Math.PI / 180);
+    const d = (v / 5) * rad;
+    return [cx + Math.cos(a) * d, cy + Math.sin(a) * d];
+  };
+  return (
+    <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {[1, 3, 5].map((lvl) => (
+        <polygon key={lvl} points={TASTE_AXES.map((_, i) => pt(i, lvl).join(",")).join(" ")} fill="none" stroke="#D8D3C4" strokeWidth="1" />
+      ))}
+      {TASTE_AXES.map((axis, i) => {
+        const [ex, ey] = pt(i, 5);
+        const [lx, ly] = pt(i, 6.6);
+        const a = (-90 + i * 30) * (Math.PI / 180);
+        return (
+          <g key={axis}>
+            <line x1={cx} y1={cy} x2={ex} y2={ey} stroke="#D8D3C4" strokeWidth="1" />
+            <text
+              x={lx} y={ly + 3}
+              textAnchor={Math.abs(Math.cos(a)) < 0.25 ? "middle" : Math.cos(a) > 0 ? "start" : "end"}
+              fontFamily="'VT323', monospace" fontSize="11" fill="#8F8676"
+            >
+              {axis}
+            </text>
+          </g>
+        );
+      })}
+      <polygon
+        points={TASTE_AXES.map((k, i) => pt(i, scores[k] || 0).join(",")).join(" ")}
+        fill="#9C4A1A" fillOpacity="0.18" stroke="#9C4A1A" strokeWidth="2" strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+const EMPTY_RECIPE = {
+  dose: "",        // g of coffee
+  ratio: "16",     // the X in 1:X
+  water: "",       // g of water (or yield, for espresso)
+  tbt: "",         // pourover total brew time, MM:SS
+  pressure: "",    // espresso peak pressure, bar
+  seconds: "",     // espresso total brew time, seconds
+  grinderId: "",   // cabinet gear id, resolved to a name snapshot on log
+  grindSize: "",   // arbitrary units, decimals allowed
+  brewerId: "",    // cabinet gear id, resolved to a name snapshot on log
+  pours: [{ to: "", sec: "45" }],  // cumulative water target + duration; first is the bloom
+};
+
+const num = (v) => {
+  const n = parseFloat(v);
+  return isFinite(n) ? n : null;
+};
+
+// Editing any one of dose / ratio / water re-derives the other two.
+function recalcRecipe(recipe, key, value) {
+  const next = { ...recipe, [key]: value };
+  const dose = num(next.dose), ratio = num(next.ratio), water = num(next.water);
+  if (key === "dose" || key === "ratio") {
+    if (dose && ratio) next.water = String(Math.round(dose * ratio));
+  } else if (key === "water") {
+    if (dose && water) next.ratio = String(Math.round((water / dose) * 10) / 10);
+  }
+  return next;
+}
+
+function fmtSeconds(total) {
+  const t = num(total);
+  if (t === null) return "";
+  const m = Math.floor(t / 60), sec = Math.round(t % 60);
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+// ————— 8-bit pictographs —————
+// o = outline, f = fill, w = liquid, r = accent
+const PIX = {
+  o: "#2B2118", f: "#8A9660", w: "#9C4A1A", r: "#55632A",
+};
+
+const ICONS = {
+  pourover: [
+    "....w..w....",
+    "............",
+    ".oooooooooo.",
+    ".offffffffo.",
+    "..offffffo..",
+    "...offffo...",
+    "....oooo....",
+    ".....ww.....",
+    "..oooooooo..",
+    "..owwwwwwo..",
+    "..owwwwwwo..",
+    "..oooooooo..",
+  ],
+  espresso: [
+    "..oo....oo..",
+    "..oo....oo..",
+    "...w....w...",
+    "...w....w...",
+    "..oooooooo..",
+    "..owwwwwwo.o",
+    "..offffffo.o",
+    "..offffffo.o",
+    "..offffffo.o",
+    "...oooooo.o.",
+    "............",
+    ".oooooooooo.",
+  ],
+  orb: [
+    "...oooooo...",
+    "...o....o...",
+    "..oooooooo..",
+    "..offffffo..",
+    "..offffffo..",
+    "..offffffo..",
+    "..oooooooo..",
+    "...o....o...",
+    "..oooooooo..",
+    "..owwwwwwo..",
+    "..owwwwwwo..",
+    "..oooooooo..",
+  ],
+};
+
+function PixelIcon({ name, cell = 4 }) {
+  const grid = ICONS[name];
+  if (!grid) return null;
+  const w = Math.max(...grid.map((r) => r.length));
+  return (
+    <svg
+      width={w * cell}
+      height={grid.length * cell}
+      viewBox={`0 0 ${w * cell} ${grid.length * cell}`}
+      shapeRendering="crispEdges"
+      style={{ display: "block", flexShrink: 0 }}
+      aria-hidden="true"
+    >
+      {grid.flatMap((row, y) =>
+        row.split("").map((ch, x) =>
+          PIX[ch] ? <rect key={`${x}-${y}`} x={x * cell} y={y * cell} width={cell} height={cell} fill={PIX[ch]} /> : null
+        )
+      )}
+    </svg>
+  );
+}
+
+// Coffee-bean pictograph — the card "favourite" toggle. Pale outline when off, filled dark brown when on.
+function BeanMark({ filled, size = 18 }) {
+  const stroke = filled ? T.brown : "#C6B49A";
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display: "block" }}>
+      <g transform="rotate(28 12 12)">
+        <ellipse cx="12" cy="12" rx="6.4" ry="9.4" fill={filled ? T.brown : "none"} stroke={stroke} strokeWidth="1.7" />
+        <path d="M12 3.2 C 8.3 8, 15.7 16, 12 20.8" fill="none" stroke={filled ? T.brownBg : stroke} strokeWidth="1.7" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RESPONSIVE SWITCH
+// Everything here is styled inline, and an inline style beats any media-query
+// rule short of !important. So the breakpoint lives in JS and the styles branch
+// on it — one source of truth per value instead of a specificity war.
+//
+// 1080 is not arbitrary: it is D.page.maxWidth, the width at which the folder
+// still fits its full four-column grid. Below that the layout has to give.
+// ═══════════════════════════════════════════════════════════════════
+const NARROW_QUERY = "(max-width: 1079px)";
+
+function useNarrow() {
+  const read = () =>
+    typeof window !== "undefined" && window.matchMedia ? window.matchMedia(NARROW_QUERY).matches : false;
+  const [narrow, setNarrow] = useState(read);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia(NARROW_QUERY);
+    const onChange = (e) => setNarrow(e.matches);
+    setNarrow(mq.matches);                    // catch a resize between first paint and here
+    // Safari below 14 only has the deprecated addListener/removeListener pair.
+    if (mq.addEventListener) mq.addEventListener("change", onChange);
+    else mq.addListener(onChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", onChange);
+      else mq.removeListener(onChange);
+    };
+  }, []);
+  return narrow;
+}
+
+const GEAR_TYPES = [
+  { key: "brewer", label: "Brewers" },
+  { key: "handgrinder", label: "Hand Grinders" },
+  { key: "grinder", label: "Electric Grinders" },
+  { key: "espresso", label: "Espresso Machines" },
+  { key: "filter", label: "Filter Papers" },
+  { key: "tool", label: "Tools" },
+];
+
+// The cabinet starts EMPTY for a first-time visitor. This file ships to people
+// who are not you; seeding it with your grinders would be wrong for them and
+// confusing to delete. Your own kit lives in your JSON export — import it.
+const SEED_CABINET = [];
+
+const METHODS = [
+  { key: "pourover", label: "Pourover" },
+  { key: "espresso", label: "Espresso" },
+  { key: "orb", label: "Oxo Rapid Brewer (ORB)" },
+];
+
+// Days between roast date and the moment it was brewed
+function restedAt(roastDate, brewedAt) {
+  if (!roastDate) return "—";
+  const d = new Date(roastDate + "T00:00:00");
+  if (isNaN(d)) return "—";
+  const days = Math.floor((new Date(brewedAt).getTime() - d.getTime()) / 86400000);
+  return days < 0 ? "—" : `${days}d`;
+}
+
+function Freshness({ dateStr }) {
+  const days = daysSince(dateStr);
+  if (days === null) return <span style={{ color: T.inkSoft }}>—</span>;
+  const color = T.bean; // fixed, regardless of how long it has rested
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }} />
+      <span style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: T.ink }}>
+        {days}d
+      </span>
+    </span>
+  );
+}
+
+// Flags for coffee-producing origins (plus common consumer countries)
+const FLAGS = {
+  ethiopia: "🇪🇹", kenya: "🇰🇪", rwanda: "🇷🇼", burundi: "🇧🇮", tanzania: "🇹🇿", uganda: "🇺🇬",
+  "congo": "🇨🇩", "dr congo": "🇨🇩", "democratic republic of the congo": "🇨🇩", malawi: "🇲🇼",
+  zambia: "🇿🇲", cameroon: "🇨🇲", "ivory coast": "🇨🇮", "côte d'ivoire": "🇨🇮", "cote d'ivoire": "🇨🇮",
+  colombia: "🇨🇴", brazil: "🇧🇷", peru: "🇵🇪", bolivia: "🇧🇴", ecuador: "🇪🇨", venezuela: "🇻🇪",
+  guatemala: "🇬🇹", "costa rica": "🇨🇷", honduras: "🇭🇳", "el salvador": "🇸🇻", nicaragua: "🇳🇮",
+  panama: "🇵🇦", mexico: "🇲🇽", jamaica: "🇯🇲", "dominican republic": "🇩🇴", haiti: "🇭🇹", cuba: "🇨🇺",
+  puertorico: "🇵🇷", "puerto rico": "🇵🇷", indonesia: "🇮🇩", "papua new guinea": "🇵🇬", india: "🇮🇳",
+  vietnam: "🇻🇳", "viet nam": "🇻🇳", thailand: "🇹🇭", laos: "🇱🇦", myanmar: "🇲🇲", burma: "🇲🇲",
+  philippines: "🇵🇭", china: "🇨🇳", taiwan: "🇹🇼", yemen: "🇾🇪", "east timor": "🇹🇱", "timor-leste": "🇹🇱",
+  "usa": "🇺🇸", "united states": "🇺🇸", "u.s.": "🇺🇸", "us": "🇺🇸", hawaii: "🇺🇸", australia: "🇦🇺", "new caledonia": "🇳🇨",
+  // Roasting / consumer countries
+  singapore: "🇸🇬", japan: "🇯🇵", "south korea": "🇰🇷", korea: "🇰🇷", "hong kong": "🇭🇰", malaysia: "🇲🇾",
+  "united kingdom": "🇬🇧", uk: "🇬🇧", england: "🇬🇧", scotland: "🏴󠁧󠁢󠁳󠁣󠁴󠁿", wales: "🏴󠁧󠁢󠁷󠁬󠁳󠁿", ireland: "🇮🇪",
+  canada: "🇨🇦", "new zealand": "🇳🇿", germany: "🇩🇪", france: "🇫🇷", italy: "🇮🇹", spain: "🇪🇸",
+  portugal: "🇵🇹", netherlands: "🇳🇱", belgium: "🇧🇪", switzerland: "🇨🇭", austria: "🇦🇹",
+  norway: "🇳🇴", sweden: "🇸🇪", denmark: "🇩🇰", finland: "🇫🇮", iceland: "🇮🇸", estonia: "🇪🇪",
+  latvia: "🇱🇻", lithuania: "🇱🇹", poland: "🇵🇱", "czech republic": "🇨🇿", czechia: "🇨🇿",
+  slovakia: "🇸🇰", slovenia: "🇸🇮", croatia: "🇭🇷", hungary: "🇭🇺", romania: "🇷🇴", bulgaria: "🇧🇬",
+  greece: "🇬🇷", turkey: "🇹🇷", ukraine: "🇺🇦", russia: "🇷🇺", israel: "🇮🇱", lebanon: "🇱🇧",
+  jordan: "🇯🇴", "saudi arabia": "🇸🇦", "united arab emirates": "🇦🇪", uae: "🇦🇪", dubai: "🇦🇪",
+  qatar: "🇶🇦", kuwait: "🇰🇼", bahrain: "🇧🇭", oman: "🇴🇲", egypt: "🇪🇬", morocco: "🇲🇦",
+  "south africa": "🇿🇦", argentina: "🇦🇷", chile: "🇨🇱", uruguay: "🇺🇾",
+};
+
+// Every flag in the UI renders at this size, regardless of the text it sits beside
+const FLAG_SIZE = D.flag.size;
+
+function Flag({ country, nudge = 0, size = FLAG_SIZE }) {
+  const glyph = flagFor(country);
+  if (!glyph) return null;
+  return (
+    <span
+      title={country}
+      style={{ fontSize: size, lineHeight: "13px", letterSpacing: "normal", display: "inline-block", verticalAlign: "middle", flexShrink: 0, position: "relative", top: nudge }}
+    >
+      {glyph}
+    </span>
+  );
+}
+
+// Longest keys first, so "south korea" wins over "korea" and "papua new guinea" over "guinea"
+const FLAG_KEYS = Object.keys(FLAGS).sort((a, b) => b.length - a.length);
+
+function flagFor(country) {
+  if (!country) return "";
+  const key = country.trim().toLowerCase().replace(/\s+/g, " ");
+  if (FLAGS[key]) return FLAGS[key];
+  // Loose match on whole words, so "Melbourne, Australia" or "Ethiopia (Guji)" resolve
+  // without short codes like "us" matching inside words such as "australia".
+  const hit = FLAG_KEYS.find((k) => new RegExp(`(^|[^a-z])${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^a-z])`).test(key));
+  return hit ? FLAGS[hit] : "";
+}
+
+const EMPTY_FILTERS = { roaster: "", machine: "", origin: "", variety: "", processing: "", month: "", day: "" };
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+function monthLabel(ym) {
+  const [y, m] = ym.split("-");
+  return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`;
+}
+
+function CoffeeInventory() {
+  const [bags, setBags] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [saveError, setSaveError] = useState(null);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [bagDetail, setBagDetail] = useState(null);
+  const [gear, setGear] = useState([]);
+  const [showGearModal, setShowGearModal] = useState(false);
+  const [gearForm, setGearForm] = useState({ name: "", detail: "", type: "brewer" });
+  const [gearEditId, setGearEditId] = useState(null);
+  const [brewDetail, setBrewDetail] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [calOpen, setCalOpen] = useState(false);
+  const [showData, setShowData] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importMsg, setImportMsg] = useState(null);
+  const [autoFile, setAutoFile] = useState(null);        // FileSystemFileHandle, or null
+  const [autoState, setAutoState] = useState("off");    // off | ready | needs-permission | unsupported | embedded | error
+  const [autoMsg, setAutoMsg] = useState("");
+  const [autoSavedAt, setAutoSavedAt] = useState(null);
+  const [tab, setTab] = useState("backlog");
+  const [brews, setBrews] = useState([]);
+  const [showBrewModal, setShowBrewModal] = useState(false);
+  const [brewPick, setBrewPick] = useState(null);
+  const [brewStep, setBrewStep] = useState(1);
+  const [brewMethod, setBrewMethod] = useState(null);
+  const [recipe, setRecipe] = useState(EMPTY_RECIPE);
+  const [loggedBrewId, setLoggedBrewId] = useState(null);
+  const [tasting, setTasting] = useState(EMPTY_TASTING);
+  const [notes, setNotes] = useState("");
+
+  const narrow = useNarrow();
+  // True when the review flow was reopened on an existing brew rather than reached
+  // straight after logging one — only the wording on the picker screen differs.
+  const [reviewReturning, setReviewReturning] = useState(false);
+
+  // Load saved inventory
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await storage.get("coffee-bags");
+        if (result && result.value) setBags(JSON.parse(result.value));
+      } catch (e) {
+        // No saved bags yet — start fresh
+      }
+      try {
+        const result = await storage.get("coffee-brews");
+        if (result && result.value) {
+          const saved = JSON.parse(result.value);
+          const fixed = migrateBrews(saved);
+          setBrews(fixed);
+          if (JSON.stringify(fixed) !== JSON.stringify(saved)) {
+            try { await storage.set("coffee-brews", JSON.stringify(fixed)); } catch (err) { /* non-fatal */ }
+          }
+        }
+      } catch (e) {
+        // No saved brews yet — start fresh
+      }
+      try {
+        const result = await storage.get("coffee-cabinet");
+        if (!result || !result.value) throw new Error("empty");
+        const saved = JSON.parse(result.value);
+        // Schema-only migration. The old build also renamed specific grinders and
+        // force-added a DF64 if one was missing — those were one-off fixes for a
+        // single person's data and have been removed. Left in, they would inject a
+        // stranger's grinder into every cabinet saved without one.
+        const fixed = saved.map(({ icon, ...g }) => {
+          const next = { ...g };
+          if (next.type === "dripper") next.type = "brewer";   // Dripper merged into Brewer
+          return next;
+        });
+        setGear(fixed);
+        if (JSON.stringify(fixed) !== JSON.stringify(saved)) {
+          try { await storage.set("coffee-cabinet", JSON.stringify(fixed)); } catch (err) { /* non-fatal */ }
+        }
+      } catch (e) {
+        // First run: stock the cabinet with the kit already on the shelf
+        setGear(SEED_CABINET);
+        try { await storage.set("coffee-cabinet", JSON.stringify(SEED_CABINET)); } catch (err) { /* non-fatal */ }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  // Everything the app knows, in one portable blob
+  const buildExport = () =>
+    JSON.stringify({ format: "coffee-backlog", version: 1, exportedAt: new Date().toISOString(), bags, brews, gear }, null, 2);
+
+  const downloadExport = () => {
+    try {
+      const blob = new Blob([buildExport()], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `coffee-backlog-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setImportMsg({ ok: false, text: "Download blocked — copy the text instead." });
+    }
+  };
+
+  // ── Auto-save: keep one chosen file in step with every change ──────────────
+  const writeBackup = async (handle) => {
+    const h = handle || autoFile;
+    if (!h) return;
+    try {
+      const w = await h.createWritable();
+      await w.write(buildExport());
+      await w.close();
+      setAutoSavedAt(new Date());
+      setAutoMsg("");
+    } catch (e) {
+      // Permission can lapse mid-session (the file was moved, or access revoked).
+      if (e && e.name === "NotAllowedError") {
+        setAutoState("needs-permission");
+      } else {
+        setAutoState("error");
+        setAutoMsg("Couldn't write to that file. Pick it again, or use the box above.");
+      }
+    }
+  };
+
+  // Reconnect to the file chosen in an earlier visit, if the grant is still live.
+  useEffect(() => {
+    if (!autosaveSupported()) {
+      setAutoState(autosaveBlocked() ? "embedded" : "unsupported");
+      return;
+    }
+    (async () => {
+      try {
+        const h = await autosaveGetHandle();
+        if (!h) return;
+        setAutoFile(h);
+        const perm = await h.queryPermission({ mode: "readwrite" });
+        setAutoState(perm === "granted" ? "ready" : "needs-permission");
+      } catch (e) {
+        // Nothing stored, or IndexedDB unavailable — stay off, the box above still works.
+      }
+    })();
+  }, []);
+
+  // Every change to the log rewrites the file. Debounced, because editing a
+  // recipe fires a state update per keystroke and each write opens the file.
+  const autoFirstRun = useRef(true);
+  useEffect(() => {
+    if (loading) return;
+    if (autoFirstRun.current) { autoFirstRun.current = false; return; }  // loading the app is not a change
+    if (autoState !== "ready" || !autoFile) return;
+    const t = setTimeout(() => { writeBackup(autoFile); }, 800);
+    return () => clearTimeout(t);
+  }, [bags, brews, gear, autoState, autoFile, loading]);
+
+  const chooseBackupFile = async () => {
+    try {
+      const h = await window.showSaveFilePicker({
+        suggestedName: "coffee-backlog-data.json",
+        types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+      });
+      setAutoFile(h);
+      setAutoState("ready");
+      setAutoMsg("");
+      try { await autosavePutHandle(h); } catch (e) { /* non-fatal: works this session, re-pick next time */ }
+      await writeBackup(h);
+    } catch (e) {
+      if (e && e.name === "AbortError") return;   // the picker was dismissed; nothing to report
+      setAutoState("error");
+      setAutoMsg("Couldn't open the file picker.");
+    }
+  };
+
+  const resumeAutoSave = async () => {
+    if (!autoFile) return;
+    try {
+      const perm = await autoFile.requestPermission({ mode: "readwrite" });
+      if (perm !== "granted") { setAutoState("needs-permission"); return; }
+      setAutoState("ready");
+      await writeBackup(autoFile);
+    } catch (e) {
+      setAutoState("error");
+      setAutoMsg("Couldn't get permission to write to that file.");
+    }
+  };
+
+  const stopAutoSave = async () => {
+    try { await autosaveClearHandle(); } catch (e) { /* non-fatal */ }
+    setAutoFile(null);
+    setAutoSavedAt(null);
+    setAutoMsg("");
+    setAutoState("off");
+  };
+
+  const runImport = (mode) => {
+    let data;
+    try {
+      data = JSON.parse(importText);
+    } catch (e) {
+      setImportMsg({ ok: false, text: "That isn't valid JSON." });
+      return;
+    }
+    if (!data || typeof data !== "object" || (!Array.isArray(data.bags) && !Array.isArray(data.brews) && !Array.isArray(data.gear))) {
+      setImportMsg({ ok: false, text: "No bags, brews or cabinet found in that file." });
+      return;
+    }
+    const inBags = Array.isArray(data.bags) ? data.bags : [];
+    const inBrews = Array.isArray(data.brews) ? migrateBrews(data.brews) : [];
+    const inGear = Array.isArray(data.gear) ? data.gear : [];
+
+    if (mode === "replace") {
+      persist(inBags);
+      persistBrews(inBrews);
+      persistGear(inGear);
+      setImportMsg({ ok: true, text: `Replaced: ${inBags.length} bags, ${inBrews.length} brews, ${inGear.length} items.` });
+    } else {
+      // merge by id, incoming wins on a collision
+      const mergeById = (mine, theirs) => {
+        const map = new Map(mine.map((x) => [x.id, x]));
+        theirs.forEach((x) => map.set(x.id, x));
+        return [...map.values()];
+      };
+      const mBags = mergeById(bags, inBags);
+      const mBrews = mergeById(brews, inBrews);
+      const mGear = mergeById(gear, inGear);
+      persist(mBags);
+      persistBrews(mBrews);
+      persistGear(mGear);
+      setImportMsg({ ok: true, text: `Merged to ${mBags.length} bags, ${mBrews.length} brews, ${mGear.length} items.` });
+    }
+    setImportText("");
+  };
+
+  const persist = (next) => {
+    setBags(next);                       // render at once
+    setSaveError(null);
+    // the write happens in the background; the UI doesn't wait on it
+    Promise.resolve(storage.set("coffee-bags", JSON.stringify(next))).catch(() => {
+      setSaveError("Couldn't save to storage — changes may not persist.");
+    });
+  };
+
+  const saveBag = () => {
+    if (!form.roaster.trim()) return;
+    let next;
+    if (editingId) {
+      next = bags.map((b) => (b.id === editingId ? { ...b, ...form } : b));
+    } else {
+      next = [{ ...form, id: Date.now().toString(36), loggedAt: new Date().toISOString() }, ...bags];
+    }
+    persist(next);
+    closeModal();
+  };
+
+  const openEdit = (bag) => {
+    const { id, loggedAt, ...fields } = bag;
+    setForm({ ...EMPTY_FORM, ...fields });
+    setEditingId(id);
+    setCalOpen(false);
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setCalOpen(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  };
+
+  const persistGear = (next) => {
+    setGear(next);                       // render at once
+    setSaveError(null);
+    // the write happens in the background; the UI doesn't wait on it
+    Promise.resolve(storage.set("coffee-cabinet", JSON.stringify(next))).catch(() => {
+      setSaveError("Couldn't save to storage — changes may not persist.");
+    });
+  };
+
+  const saveGear = () => {
+    if (!gearForm.name.trim()) return;
+    if (gearEditId) {
+      persistGear(gear.map((g) => (g.id === gearEditId ? { ...g, ...gearForm } : g)));
+    } else {
+      persistGear([...gear, { ...gearForm, id: Date.now().toString(36) }]);
+    }
+    closeGearModal();
+  };
+
+  const closeGearModal = () => {
+    setShowGearModal(false);
+    setGearEditId(null);
+    setGearForm({ name: "", detail: "", type: "brewer" });
+  };
+
+  const removeGear = (id) => {
+    persistGear(gear.filter((g) => g.id !== id));
+    closeGearModal();
+  };
+
+  const persistBrews = (next) => {
+    setBrews(next);                       // render at once
+    setSaveError(null);
+    // the write happens in the background; the UI doesn't wait on it
+    Promise.resolve(storage.set("coffee-brews", JSON.stringify(next))).catch(() => {
+      setSaveError("Couldn't save to storage — changes may not persist.");
+    });
+  };
+
+  const closeBrewModal = () => {
+    setShowBrewModal(false);
+    setBrewPick(null);
+    setBrewMethod(null);
+    setBrewStep(1);
+    setRecipe(EMPTY_RECIPE);
+    setLoggedBrewId(null);
+    setTasting(EMPTY_TASTING);
+    setNotes("");
+    setReviewReturning(false);
+  };
+
+  const addBrew = () => {
+    if (!brewPick || !brewMethod) return;
+    const bag = bags.find((b) => b.id === brewPick);
+    if (!bag) return;
+    // Snapshot the chosen cabinet gear by name, so the brew record survives
+    // renaming or removing that gear later — same reasoning as the bag fields below.
+    const grinderGear = gear.find((g) => g.id === recipe.grinderId);
+    const brewerGear = gear.find((g) => g.id === recipe.brewerId);
+    const { grinderId, brewerId, ...recipeRest } = recipe;
+    const recipeSnapshot = {
+      ...recipeRest,
+      grinder: grinderGear ? grinderGear.name : "",
+      brewer: brewerGear ? brewerGear.name : "",
+    };
+    const brew = {
+      id: Date.now().toString(36),
+      bagId: bag.id,
+      brewedAt: new Date().toISOString(),
+      // snapshot, so the brew record survives editing or removing the bag
+      roaster: bag.roaster,
+      roasterCountry: bag.roasterCountry,
+      origin: bag.origin,
+      variety: bag.variety,
+      processing: bag.processing,
+      roastDate: bag.roastDate,
+      method: brewMethod,
+      recipe: recipeSnapshot,
+    };
+    persistBrews([brew, ...brews]);
+    setLoggedBrewId(brew.id);
+    setReviewReturning(false);
+    setBrewStep(4); // the Notes / Sensory Web / Later picker
+  };
+
+  const openReview = (brew) => {
+    setLoggedBrewId(brew.id);
+    setTasting({ ...EMPTY_TASTING, ...(brew.tasting || {}) });
+    setNotes(brew.notes || "");
+    setBrewMethod(brew.method);
+    setReviewReturning(true);
+    setBrewStep(4);   // the picker, so an existing brew can gain either half
+    setShowBrewModal(true);
+  };
+
+  const saveTasting = () => {
+    persistBrews(brews.map((x) => (x.id === loggedBrewId ? { ...x, tasting } : x)));
+    closeBrewModal();
+  };
+
+  // Notes live beside `tasting`, not inside it: a brew may have either, both or neither.
+  const saveNotes = () => {
+    const text = notes.trim();
+    persistBrews(brews.map((x) => (x.id === loggedBrewId ? { ...x, notes: text } : x)));
+    closeBrewModal();
+  };
+
+  const removeBrew = (id) => {
+    persistBrews(brews.filter((x) => x.id !== id));
+  };
+
+  const toggleArchive = (id) => {
+    persist(bags.map((b) => (b.id === id ? { ...b, archived: !b.archived } : b)));
+  };
+
+  const toggleFavorite = (id) => {
+    persist(bags.map((b) => (b.id === id ? { ...b, favorite: !b.favorite } : b)));
+  };
+
+  const removeBag = (id) => {
+    persist(bags.filter((b) => b.id !== id));
+  };
+
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+
+  const setFilter = (key) => (e) => {
+    const value = e.target.value;
+    setFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "month") next.day = ""; // day depends on month
+      return next;
+    });
+  };
+
+  // Distinct values for each filterable field, from bags currently logged
+  const optionsFor = (key) =>
+    [...new Set(bags.map((b) => (b[key] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+  // Roast date subcategories: months (YYYY-MM), then days within the chosen month
+  const months = [...new Set(bags.map((b) => (b.roastDate || "").slice(0, 7)).filter((m) => m.length === 7))].sort().reverse();
+  const daysInMonth = filters.month
+    ? [...new Set(bags.filter((b) => (b.roastDate || "").startsWith(filters.month)).map((b) => b.roastDate.slice(8, 10)))].sort()
+    : [];
+
+  const filtered = bags.filter((b) => {
+    if (filters.roaster && (b.roaster || "").trim() !== filters.roaster) return false;
+    if (filters.machine && (b.machine || "").trim() !== filters.machine) return false;
+    if (filters.origin && (b.origin || "").trim() !== filters.origin) return false;
+    if (filters.variety && (b.variety || "").trim() !== filters.variety) return false;
+    if (filters.processing && (b.processing || "").trim() !== filters.processing) return false;
+    if (filters.month && !(b.roastDate || "").startsWith(filters.month)) return false;
+    if (filters.day && (b.roastDate || "").slice(8, 10) !== filters.day) return false;
+    return true;
+  });
+
+  // A bag with no weight logged still counts as in stock — we just can't track it.
+  const inStockCount = bags.filter((b) => {
+    if (b.archived) return false;
+    const left = remainingGrams(b, brews);
+    return left === null || left > 0;
+  }).length;
+
+  // The brew picker only offers bags still on the shelf — an archived bag is a finished bag.
+  const brewableBags = bags.filter((b) => !b.archived);
+
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const sorted = [...filtered]
+    .filter((b) => !b.archived)
+    .sort((a, b) => (b.roastDate || "").localeCompare(a.roastDate || ""));
+  // Archived bags: favourites float to the top, then newest roast date first.
+  const archived = [...filtered]
+    .filter((b) => b.archived)
+    .sort(
+      (a, b) =>
+        (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) ||
+        (b.roastDate || "").localeCompare(a.roastDate || "")
+    );
+
+  const setRecipeField = (key) => (e) => setRecipe((r) => recalcRecipe(r, key, e.target.value));
+
+  const setPour = (i, key) => (e) =>
+    setRecipe((r) => ({ ...r, pours: r.pours.map((p, idx) => (idx === i ? { ...p, [key]: e.target.value } : p)) }));
+
+  // Cabinet gear offered in the Recipe step: grinders of either kind, and any brewer/machine.
+  const grinderOptions = gear.filter((g) => g.type === "handgrinder" || g.type === "grinder");
+  const brewerOptions = gear.filter((g) => g.type === "brewer" || g.type === "espresso");
+
+  const waterTarget = num(recipe.water) || 0;
+  const poured = recipe.pours.reduce((sum, p) => sum + (num(p.to) || 0), 0);
+  const remaining = Math.max(0, Math.round(waterTarget - poured));
+
+  const addPour = () => setRecipe((r) => ({ ...r, pours: [...r.pours, { to: "", sec: "" }] }));
+  const removePour = (i) => setRecipe((r) => ({ ...r, pours: r.pours.filter((_, idx) => idx !== i) }));
+
+  const recipeReady = Boolean(num(recipe.dose) && num(recipe.water));
+  const stepReady = brewStep === 1 ? Boolean(brewPick) : brewStep === 2 ? Boolean(brewMethod) : brewStep === 3 ? recipeReady : true;
+
+  const recipeLabel = {
+    fontFamily: "'VT323', monospace",
+    fontSize: 14,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: T.inkSoft,
+  };
+
+  const recipeInput = {
+    width: 62,
+    padding: "6px 8px",
+    border: `1px solid ${T.line}`,
+    borderRadius: 0,
+    background: "#FFFFFF",
+    fontFamily: "'VT323', monospace",
+    fontSize: 17,
+    color: T.ink,
+    textAlign: "center",
+  };
+
+  const filterSelectStyle = {
+    padding: "6px 8px",
+    border: `1px solid ${T.line}`,
+    borderRadius: 0,
+    background: "#FFFFFF",
+    fontFamily: "'VT323', monospace",
+    fontSize: 14,
+    color: T.ink,
+    minWidth: 0,
+  };
+  const filterLabelStyle = {
+    fontFamily: "'VT323', monospace",
+    fontSize: 12,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: T.inkSoft,
+  };
+
+  const renderBagCard = (b) => {
+              return (
+                <article
+                  key={b.id}
+                  className="ci-card"
+                  onClick={() => { setBagDetail(b.id); setConfirmDelete(null); }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setBagDetail(b.id); setConfirmDelete(null); }
+                  }}
+                  style={{
+                    background: b.archived ? T.brownBg : T.card,
+                    border: `1px solid ${b.archived ? "#C6B49A" : T.line}`,
+                    borderLeft: `4px solid ${b.archived ? T.brown : T.beanSoft}`,
+                    padding: D.card.padding,
+                    cursor: "pointer",
+                    width: "100%",   // the grid track sets the real width now
+                    height: b.archived ? D.card.archivedHeight : D.card.height,
+                    boxSizing: "border-box",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  {/* Card face — fixed height so the divider never shifts */}
+                  <div style={{ minWidth: 0, height: b.archived ? D.card.archivedFaceHeight : D.card.faceHeight, flexShrink: 0, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 10px" }}>
+                      <h3 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 11, lineHeight: 1.2, margin: 0, color: T.ink, transform: `scaleY(${D.stretch.cardTitle})`, transformOrigin: "left top", display: "block", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {b.roaster}
+                      </h3>
+                      <Flag country={b.roasterCountry} size={FLAG_SIZE * D.flag.roasterScale} nudge={D.flag.roasterNudge} />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleFavorite(b.id); }}
+                        aria-label={b.favorite ? "Unfavourite this bag" : "Favourite this bag"}
+                        aria-pressed={b.favorite ? "true" : "false"}
+                        title={b.favorite ? "Favourited" : "Favourite this bag"}
+                        style={{ marginLeft: "auto", flexShrink: 0, background: "none", border: "none", padding: 2, cursor: "pointer", lineHeight: 0 }}
+                      >
+                        <BeanMark filled={Boolean(b.favorite)} />
+                      </button>
+                    </div>
+                    <div
+                      title={[b.variety, b.processing].filter(Boolean).join(" · ")}
+                      style={{ fontFamily: "'VT323', monospace", fontSize: 16, lineHeight: 1.15, color: T.inkSoft, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                    >
+                      {[b.variety, shortProcess(b.processing)].filter(Boolean).join(" · ") || "variety & process unlogged"}
+                    </div>
+                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 16, lineHeight: 1.15, color: T.bean, textTransform: "uppercase", letterSpacing: "0.1em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {b.origin ? <>{b.origin} <Flag country={b.origin} /></> : "origin unlogged"}
+                    </div>
+                    {/* Archived bags are off the shelf — weight and resting are dropped to collapse the card. */}
+                    {!b.archived && (
+                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 16, lineHeight: 1.15, color: T.inkSoft, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {(() => {
+                        if (!b.weight) return "weight unlogged";
+                        const left = remainingGrams(b, brews);
+                        const start = toGrams(b.weight);
+                        if (left === null || start === null) return formatWeight(b.weight);
+                        if (left <= 0) return <span style={{ color: T.rust }}>EMPTY · {Math.round(start)} g used</span>;
+                        return <>{Math.round(left)} g <span style={{ color: T.muted }}>of {Math.round(start)} g left</span></>;
+                      })()}
+                    </div>
+                    )}
+                  </div>
+
+                  {/* Roast date + resting, pinned to card bottom; expand arrow bottom-right */}
+                  <div style={{ marginTop: D.micro.dividerGapTop, paddingTop: 7, borderTop: `1px dashed ${T.line}`, fontFamily: "'VT323', monospace", fontSize: 15, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: T.inkSoft, letterSpacing: "0.06em", lineHeight: 1.15 }}>
+                        ROASTED <span style={{ color: T.ink }}>{b.roastDate || "—"}</span>
+                      </div>
+                      {!b.archived && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, color: T.inkSoft, letterSpacing: "0.06em", lineHeight: 1.15, marginTop: 1 }}>
+                        <span>RESTED</span>
+                        <Freshness dateStr={b.roastDate} />
+                      </div>
+                      )}
+                    </div>
+                    <span style={{ fontFamily: "'VT323', monospace", fontSize: 18, lineHeight: 1, color: T.inkSoft, flexShrink: 0 }}>
+                      ⋯
+                    </span>
+                  </div>
+
+                </article>
+              );
+  };
+
+
+  // Lifted out of the tab strip so the SAME buttons can sit inside it on desktop and on
+  // their own row above it on a phone. They cannot simply wrap: a wrapped line lands
+  // BELOW the tabs, between them and the folder, which breaks the tab-to-folder junction
+  // the whole folder metaphor rests on.
+  const dataButton = (
+    <button
+      key="data"
+      onClick={() => { setShowData(true); setImportMsg(null); }}
+      title="Export or import your data"
+      style={{
+        marginLeft: narrow ? 0 : "auto",
+        marginBottom: narrow ? 0 : 5,
+        marginRight: narrow ? 0 : 8,
+        background: "none",
+        color: T.inkSoft,
+        border: `${D.folder.border}px solid ${T.line}`,
+        borderRadius: D.folder.tabRadius,
+        padding: "10px 14px",
+        fontFamily: "'Press Start 2P', monospace",
+        fontSize: 10,
+        lineHeight: 1,
+        cursor: "pointer",
+      }}
+    >
+      <span style={{ display: "inline-block", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}>
+        Data
+      </span>
+    </button>
+  );
+
+  const newButton = (
+    <button
+      key="new"
+      className="ci-btn"
+      onClick={() => {
+        if (tab === "backlog") setShowModal(true);
+        else if (tab === "brew") { setBrewStep(1); setShowBrewModal(true); }
+        else setShowGearModal(true);
+      }}
+      style={{
+        marginBottom: narrow ? 0 : 5,
+        marginRight: narrow ? 0 : D.folder.btnShadow,
+        background: T.bean,
+        color: T.card,
+        border: "none",
+        borderRadius: D.folder.tabRadius,
+        padding: "10px 22px",
+        fontFamily: "'Press Start 2P', monospace",
+        fontSize: 10,
+        lineHeight: 1,
+        cursor: "pointer",
+        boxShadow: `${D.folder.btnShadow}px ${D.folder.btnShadow}px 0 ${T.ink}`,
+      }}
+    >
+      <span style={{ display: "inline-block", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}>
+        {tab === "backlog" ? "+ New Bag" : tab === "brew" ? "+ New Brew" : "+ New Item"}
+      </span>
+    </button>
+  );
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.paper, color: T.ink, fontFamily: "'VT323', monospace", padding: "0 0 64px" }}>
+      <style>{FONTS}</style>
+
+      {/* Header */}
+      <header style={{ maxWidth: D.page.maxWidth, margin: "0 auto", padding: narrow ? "24px 16px 8px" : "40px 24px 8px" }}>
+        <div>
+          <h1 style={{ fontFamily: "'Press Start 2P', monospace", fontWeight: 650, fontSize: "clamp(16px, 3.2vw, 26px)", margin: "0 0 14px", lineHeight: 1.05, transform: `scaleY(${D.stretch.pageTitle})`, transformOrigin: "left top", display: "inline-block" }}>
+            {tab === "backlog" ? "THE BACKLOG" : tab === "brew" ? "THE BREW LOG" : "THE CABINET"}
+          </h1>
+          <div style={{ fontFamily: "'VT323', monospace", fontSize: 18, letterSpacing: "0.12em", textTransform: "lowercase", color: T.bean, marginLeft: D.micro.countLineIndent }}>
+            {tab === "backlog" ? (
+              <><strong style={{ fontWeight: 700, color: T.ink }}>{inStockCount}</strong> bag{inStockCount === 1 ? "" : "s"} in stock</>
+            ) : tab === "brew" ? (
+              <><strong style={{ fontWeight: 700, color: T.ink }}>{brews.length}</strong> brew{brews.length === 1 ? "" : "s"} logged</>
+            ) : (
+              <><strong style={{ fontWeight: 700, color: T.ink }}>{gear.length}</strong> item{gear.length === 1 ? "" : "s"} on the shelf</>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* On a phone the Data / New buttons get their own row ABOVE the strip, so the tabs
+          stay the last thing before the folder and the junction between them survives. */}
+      {narrow && (
+        <div style={{ maxWidth: D.page.maxWidth, boxSizing: "border-box", margin: "14px auto 0", padding: "0 10px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+          {dataButton}
+          {newButton}
+        </div>
+      )}
+
+      {/* Tabs — manila folders sitting in a drawer */}
+      <nav
+        style={{
+          maxWidth: D.page.maxWidth,
+          // border-box, or the 20px left padding is added OUTSIDE the 1080 and the
+          // strip ends up 1100 wide — 10px proud of the folder on each side, which
+          // is what pushed the New button past the folder's right edge.
+          boxSizing: "border-box",
+          margin: narrow ? "10px auto 0" : "18px auto 0",
+          // 10, not 20: under border-box the padding now sits inside the 1080, so 20
+          // would push the tab strip 10px right of where it has always sat. 10 keeps
+          // the tabs exactly where they were and only the right edge moves.
+          padding: "0 0 0 10px",
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 0,
+        }}
+      >
+        {[["backlog", "Backlog"], ["brew", "Brew"], ["cabinet", "Cabinet"]].map(([key, label]) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              aria-current={active ? "page" : undefined}
+              style={{
+                position: "relative",
+                zIndex: active ? 2 : 1,
+                // EVERY tab overlaps the folder's top border by exactly its thickness, so the
+                // tab's bottom edge and the folder's top edge land in the SAME 2px band rather
+                // than stacking into a 4px rule. Only the active tab used to do this, which is
+                // why the inactive tabs sat on a visibly doubled line.
+                marginBottom: -D.folder.border,
+                marginLeft: D.folder.overlap,
+                background: active ? T.paper : "#E0DCCE",
+                border: `2px solid ${active ? T.ink : "#BEB6A2"}`,
+                // the active tab's lip overlaps the folder's top border and hides it
+                borderBottom: active ? `2px solid ${T.paper}` : `2px solid ${T.ink}`,
+                marginRight: 0,
+                borderRadius: `${D.folder.tabRadius}px ${D.folder.tabRadius}px 0 0`,
+                // Inactive top padding is 9 rather than 7 because the overlap above drops those
+                // tabs 2px; this holds their top edges exactly where they were.
+                // Narrow trims the HORIZONTAL padding only — at full labels the three tabs then
+                // need ~260px, which clears a 390px phone. The vertical values are untouched so
+                // the 2px overlap onto the folder still lands exactly where it should.
+                padding: active
+                  ? (narrow ? "8px 14px 9px" : "8px 28px 9px")
+                  : (narrow ? "9px 12px 8px" : "9px 25px 8px"),
+                cursor: "pointer",
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 10,
+                lineHeight: 1,
+                color: active ? T.ink : T.muted,
+              }}
+            >
+              <span style={{ display: "inline-block", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}>
+                {label}
+              </span>
+            </button>
+          );
+        })}
+
+        {!narrow && dataButton}
+        {!narrow && newButton}
+      </nav>
+
+      {/* Folder body — the tab strip's baseline is its top edge */}
+      <div
+        style={{
+          maxWidth: D.page.maxWidth,
+          margin: "0 auto",
+          background: T.paper,
+          border: `${D.folder.border}px solid ${T.ink}`,
+          borderRadius: D.folder.radius,
+          padding: narrow ? "16px 12px 24px" : `18px ${D.page.padding}px 30px`,
+          boxSizing: "border-box",
+          minHeight: 260,
+        }}
+      >
+
+      {/* Filters */}
+      {tab === "backlog" && bags.length > 0 && (
+        <section style={{ margin: "0 0 4px" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 0, padding: "11px 13px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <button
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-expanded={filtersOpen}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontFamily: "'VT323', monospace", fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", color: T.bean }}
+              >
+                <span style={{ fontSize: 11 }}>{filtersOpen ? "▲" : "▼"}</span>
+                Filter
+                {activeFilterCount > 0 && <span style={{ color: T.ink }}>· {activeFilterCount} active</span>}
+              </button>
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={() => setFilters(EMPTY_FILTERS)}
+                  style={{ background: "none", border: "none", color: T.rust, cursor: "pointer", fontSize: 13, fontFamily: "'VT323', monospace" }}
+                >
+                  Clear all ({activeFilterCount})
+                </button>
+              )}
+            </div>
+            {filtersOpen && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "8px 10px", marginTop: 10 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={filterLabelStyle}>Roaster</span>
+                <select value={filters.roaster} onChange={setFilter("roaster")} style={filterSelectStyle}>
+                  <option value="">All</option>
+                  {optionsFor("roaster").map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={filterLabelStyle}>Roasting machine</span>
+                <select value={filters.machine} onChange={setFilter("machine")} style={filterSelectStyle}>
+                  <option value="">All</option>
+                  {optionsFor("machine").map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={filterLabelStyle}>Origin</span>
+                <select value={filters.origin} onChange={setFilter("origin")} style={filterSelectStyle}>
+                  <option value="">All</option>
+                  {optionsFor("origin").map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={filterLabelStyle}>Bean variety</span>
+                <select value={filters.variety} onChange={setFilter("variety")} style={filterSelectStyle}>
+                  <option value="">All</option>
+                  {optionsFor("variety").map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={filterLabelStyle}>Processing</span>
+                <select value={filters.processing} onChange={setFilter("processing")} style={filterSelectStyle}>
+                  <option value="">All</option>
+                  {optionsFor("processing").map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={filterLabelStyle}>Roast month</span>
+                <select value={filters.month} onChange={setFilter("month")} style={filterSelectStyle}>
+                  <option value="">All</option>
+                  {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, opacity: filters.month ? 1 : 0.45 }}>
+                <span style={filterLabelStyle}>Roast day</span>
+                <select value={filters.day} onChange={setFilter("day")} disabled={!filters.month} style={{ ...filterSelectStyle, cursor: filters.month ? "pointer" : "not-allowed" }}>
+                  <option value="">{filters.month ? "All days" : "Pick a month"}</option>
+                  {daysInMonth.map((d) => <option key={d} value={d}>{parseInt(d, 10)}</option>)}
+                </select>
+              </label>
+            </div>
+            )}
+            {filtersOpen && activeFilterCount > 0 && (
+              <div style={{ marginTop: 10, fontFamily: "'VT323', monospace", fontSize: 16, color: T.inkSoft }}>
+                Showing {sorted.length} of {bags.length} bags
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Backlog */}
+      {tab === "backlog" && (
+      <main>
+        {loading ? (
+          <p style={{ color: T.inkSoft, fontFamily: "'VT323', monospace", fontSize: 18, padding: "32px 0" }}>Loading inventory…</p>
+        ) : sorted.length === 0 && archived.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "72px 16px", border: `1px dashed ${T.line}`, borderRadius: 0, marginTop: 24, background: T.card }}>
+            {bags.length === 0 ? (
+              <>
+                <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 14, lineHeight: 1.6, margin: "0 0 8px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "left top", display: "inline-block" }}>The shelf is empty.</p>
+                <p style={{ color: T.inkSoft, fontSize: 18, margin: 0 }}>Log your first bag to start the record.</p>
+              </>
+            ) : (
+              <>
+                <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 13, lineHeight: 1.6, margin: "0 0 8px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "left top", display: "inline-block" }}>No bags match these filters.</p>
+                <button
+                  onClick={() => setFilters(EMPTY_FILTERS)}
+                  style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: 0, padding: "8px 16px", color: T.bean, cursor: "pointer", fontSize: 17, fontFamily: "'VT323', monospace", fontWeight: 600 }}
+                >
+                  Clear filters
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <>
+          {sorted.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${D.card.width}px), 1fr))`, gap: D.card.gap, marginTop: 14, justifyContent: "start", alignItems: "start" }}>
+              {sorted.map((b) => renderBagCard(b))}
+            </div>
+          )}
+
+          {archived.length > 0 && (
+            <section style={{ marginTop: 34 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, borderTop: `2px solid ${T.brown}`, paddingTop: 10, marginBottom: 12 }}>
+                <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 12, margin: 0, color: T.brown, transform: `scaleY(${D.stretch.button})`, transformOrigin: "left center", display: "inline-block" }}>
+                  Archive
+                </h2>
+                <span style={{ fontSize: 17, color: T.muted, letterSpacing: "0.06em" }}>
+                  {archived.length} bag{archived.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${D.card.width}px), 1fr))`, gap: D.card.gap, justifyContent: "start", alignItems: "start" }}>
+                {archived.map((b) => renderBagCard(b))}
+              </div>
+            </section>
+          )}
+          </>
+        )}
+      </main>
+      )}
+
+      {/* Brew log */}
+      {tab === "brew" && (
+        <main>
+          {brews.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "72px 16px", border: `1px dashed ${T.line}`, background: T.card }}>
+              <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 13, lineHeight: 1.6, margin: "0 0 8px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "left top", display: "inline-block" }}>No brews yet.</p>
+              <p style={{ color: T.inkSoft, fontSize: 18, margin: 0 }}>
+                {bags.length === 0 ? "Log a bag in the Backlog first." : "Hit + New Brew to pick a bag."}
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${D.card.width}px), 1fr))`, gap: 12, justifyContent: "start", alignItems: "start" }}>
+              {brews.map((x) => {
+                const method = METHODS.find((m) => m.key === x.method);
+                return (
+                <article
+                  key={x.id}
+                  className="ci-card"
+                  onClick={() => setBrewDetail(x.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setBrewDetail(x.id); } }}
+                  style={{
+                    background: T.card,
+                    border: `1px solid ${T.line}`,
+                    borderLeft: `4px solid ${T.beanSoft}`,
+                    padding: "9px 12px",
+                    width: "100%",   // the grid track sets the real width now
+                    boxSizing: "border-box",
+                    cursor: "pointer",
+                  }}
+                >
+                  {/* Header: method icon + name, date top-right */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                      {/* the cone+carafe sit low in the 12x12 grid, so lift the icon
+                          to put their midline on the label's midline */}
+                      <span style={{ position: "relative", top: D.micro.methodIconLift, display: "flex", flexShrink: 0 }}>
+                        <PixelIcon name={x.method} cell={1.7} />
+                      </span>
+                      <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 10, lineHeight: 1.2, color: T.ink, transform: `scaleY(${D.stretch.cardTitle})`, transformOrigin: "left center", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {x.method === "orb" ? "ORB" : (method || {}).label || "Brew"}
+                      </span>
+                    </span>
+                    <span style={{ fontSize: 15, color: T.muted, letterSpacing: "0.04em", flexShrink: 0 }}>
+                      {new Date(x.brewedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+
+                  {/* Bean lines: roaster, then variety + processing on its own row */}
+                  <div style={{ marginTop: 7, fontSize: 15, lineHeight: 1.25, color: T.ink, letterSpacing: "0.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {x.roaster}
+                  </div>
+                  {[x.variety, x.processing].filter(Boolean).length > 0 && (
+                    <div
+                      title={[x.variety, x.processing].filter(Boolean).join(" · ")}
+                      style={{ fontSize: 15, lineHeight: 1.25, color: T.inkSoft, letterSpacing: "0.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                    >
+                      {[x.variety, shortProcess(x.processing)].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 15, lineHeight: 1.25, color: T.bean, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {x.origin ? <>{x.origin} <Flag country={x.origin} /></> : "origin unlogged"}
+                  </div>
+
+                </article>
+                );
+              })}
+            </div>
+          )}
+        </main>
+      )}
+
+
+      {/* Cabinet */}
+      {tab === "cabinet" && (
+        <main>
+          {gear.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "72px 16px", border: `1px dashed ${T.line}`, background: T.card }}>
+              <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 13, lineHeight: 1.6, margin: "0 0 8px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "left top", display: "inline-block" }}>The cabinet is bare.</p>
+              <p style={{ color: T.inkSoft, fontSize: 18, margin: 0 }}>Add your first piece of kit.</p>
+            </div>
+          ) : (
+            GEAR_TYPES.filter((t) => gear.some((g) => g.type === t.key)).map((type) => (
+              <section key={type.key} style={{ marginBottom: 26 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${T.line}`, paddingBottom: 6, marginBottom: 12 }}>
+                  <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 10, margin: 0, color: T.bean, transform: `scaleY(${D.stretch.button})`, transformOrigin: "left center", display: "inline-block" }}>
+                    {type.label}
+                  </h2>
+                  <span style={{ fontSize: 16, color: T.muted }}>
+                    {gear.filter((g) => g.type === type.key).length}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${D.card.width}px), 1fr))`, gap: D.card.gap, justifyContent: "start", alignItems: "start" }}>
+                  {gear.filter((g) => g.type === type.key).map((g) => (
+                    <article
+                      key={g.id}
+                      className="ci-card"
+                      onClick={() => { setGearEditId(g.id); setGearForm({ name: g.name, detail: g.detail || "", type: g.type }); setShowGearModal(true); }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setGearEditId(g.id); setGearForm({ name: g.name, detail: g.detail || "", type: g.type }); setShowGearModal(true); } }}
+                      style={{
+                        background: T.card,
+                        border: `1px solid ${T.line}`,
+                        borderLeft: `4px solid ${T.beanSoft}`,
+                        padding: "12px 14px",
+                        width: "100%",   // the grid track sets the real width now
+                        boxSizing: "border-box",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 14,
+                        minHeight: D.cabinetCardMinHeight,
+                      }}
+                    >
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", fontFamily: "'Press Start 2P', monospace", fontSize: 10, lineHeight: 1.3, color: T.ink, transform: `scaleY(${D.stretch.cardTitle})`, transformOrigin: "left top", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {g.name}
+                        </span>
+                      </span>
+                      {/* notes stay tucked away — a small marker hints they exist */}
+                      {g.detail && (
+                        <span
+                          title="Has notes"
+                          style={{ marginLeft: "auto", fontFamily: "'VT323', monospace", fontSize: 16, color: T.muted, flexShrink: 0, alignSelf: "center" }}
+                        >
+                          ✎
+                        </span>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ))
+          )}
+        </main>
+      )}
+
+      </div>
+
+      {/* Export / import */}
+      {showData && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowData(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(43,33,24,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60 }}
+        >
+          <div style={{ background: T.card, width: "100%", maxWidth: 560, maxHeight: "90vh", display: "flex", flexDirection: "column", border: `1px solid ${T.line}`, borderRadius: D.folder.radius, overflow: "hidden", boxShadow: "6px 6px 0 rgba(43,33,24,0.55)" }}>
+            <div style={{ padding: "18px 24px 14px" }}>
+              <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontWeight: 650, fontSize: 14, margin: 0, transform: `translateY(2px) scaleY(${D.stretch.button})`, transformOrigin: "left center", display: "inline-block" }}>
+                Move Your Data
+              </h2>
+            </div>
+            {/* Inset to the card gutter, so it reads as a rule under the title rather
+                than a seam cutting the card edge to edge. */}
+            <div style={{ height: 2, background: T.ink, margin: "0 24px", flexShrink: 0 }} />
+
+            <div style={{ padding: "16px 24px", overflowY: "auto", flex: 1 }}>
+              <div style={{ fontSize: 17, color: T.inkSoft, marginBottom: 12, lineHeight: 1.4 }}>
+                {bags.length} bags · {brews.length} brews · {gear.length} cabinet items
+              </div>
+
+              {/* Export */}
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase", color: T.bean, marginBottom: 6 }}>
+                1 · Export from here
+              </div>
+              <textarea
+                readOnly
+                value={buildExport()}
+                onFocus={(e) => e.target.select()}
+                style={{ width: "100%", height: 110, boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${T.line}`, borderRadius: 0, background: "#FFFFFF", fontFamily: "'VT323', monospace", fontSize: 14, color: T.ink, resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 8, margin: "8px 0 20px" }}>
+                <button
+                  onClick={downloadExport}
+                  style={{ background: T.bean, border: "none", borderRadius: D.folder.tabRadius, color: T.card, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                >
+                  Download .json
+                </button>
+                <span style={{ fontSize: 16, color: T.muted, alignSelf: "center" }}>
+                  or click the box and copy
+                </span>
+              </div>
+
+              {/* Auto-save */}
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase", color: T.bean, marginBottom: 6, paddingTop: 12, borderTop: `1px dashed ${T.line}` }}>
+                2 · Auto-save to a file
+              </div>
+              {autoState === "embedded" ? (
+                <p style={{ fontSize: 16, color: T.muted, margin: "0 0 20px", lineHeight: 1.4 }}>
+                  Not available in an embedded page — the sandbox blocks file access. Open coffee-backlog.html
+                  from your own folder and this will work there. Until then, copy the box above.
+                </p>
+              ) : autoState === "unsupported" ? (
+                <p style={{ fontSize: 16, color: T.muted, margin: "0 0 20px", lineHeight: 1.4 }}>
+                  This browser can't write to a file on its own. Chrome and Edge can. Everywhere else,
+                  copy the box above and paste it somewhere safe.
+                </p>
+              ) : (
+                <>
+                  <p style={{ fontSize: 16, color: T.inkSoft, margin: "0 0 8px", lineHeight: 1.4 }}>
+                    Choose a file once and every change is written straight to it — no clicking save.
+                  </p>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {autoState === "ready" ? (
+                      <>
+                        <button
+                          onClick={() => writeBackup()}
+                          style={{ background: "none", border: `1px solid ${T.bean}`, borderRadius: D.folder.tabRadius, color: T.bean, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                        >
+                          Save now
+                        </button>
+                        <button
+                          onClick={stopAutoSave}
+                          style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, color: T.inkSoft, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                        >
+                          Stop
+                        </button>
+                      </>
+                    ) : autoState === "needs-permission" ? (
+                      <button
+                        onClick={resumeAutoSave}
+                        style={{ background: T.bean, border: "none", borderRadius: D.folder.tabRadius, color: T.card, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                      >
+                        Resume
+                      </button>
+                    ) : (
+                      <button
+                        onClick={chooseBackupFile}
+                        style={{ background: T.bean, border: "none", borderRadius: D.folder.tabRadius, color: T.card, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                      >
+                        Choose file
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 16, margin: "8px 0 20px", lineHeight: 1.4, color: autoState === "error" ? T.rust : autoState === "ready" ? T.bean : T.inkSoft }}>
+                    {autoState === "error"
+                      ? autoMsg
+                      : autoState === "ready"
+                        ? <>Writing to <strong style={{ color: T.ink }}>{autoFile ? autoFile.name : "your file"}</strong>{autoSavedAt ? ` · last saved ${autoSavedAt.toLocaleTimeString()}` : ""}</>
+                        : autoState === "needs-permission"
+                          ? <>Chrome asks again after a reload. One click and it picks {autoFile ? autoFile.name : "your file"} back up.</>
+                          : "Not set up yet."}
+                  </div>
+                </>
+              )}
+
+              {/* Import */}
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase", color: T.bean, marginBottom: 6, paddingTop: 12, borderTop: `1px dashed ${T.line}` }}>
+                3 · Import somewhere else
+              </div>
+              <textarea
+                value={importText}
+                onChange={(e) => { setImportText(e.target.value); setImportMsg(null); }}
+                placeholder="paste an exported backup here"
+                style={{ width: "100%", height: 90, boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${T.line}`, borderRadius: 0, background: "#FFFFFF", fontFamily: "'VT323', monospace", fontSize: 14, color: T.ink, resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => runImport("merge")}
+                  disabled={!importText.trim()}
+                  style={{ background: "none", border: `1px solid ${T.bean}`, borderRadius: D.folder.tabRadius, color: importText.trim() ? T.bean : T.muted, cursor: importText.trim() ? "pointer" : "not-allowed", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                >
+                  Merge
+                </button>
+                <button
+                  onClick={() => runImport("replace")}
+                  disabled={!importText.trim()}
+                  style={{ background: importText.trim() ? T.rust : T.line, border: "none", borderRadius: D.folder.tabRadius, color: T.card, cursor: importText.trim() ? "pointer" : "not-allowed", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                >
+                  Replace all
+                </button>
+              </div>
+              {importMsg && (
+                <div style={{ fontSize: 17, color: importMsg.ok ? T.bean : T.rust, marginTop: 10 }}>
+                  {importMsg.text}
+                </div>
+              )}
+              <p style={{ fontSize: 16, color: T.muted, lineHeight: 1.45, marginTop: 14 }}>
+                Merge keeps what's already here and adds anything new. Replace all wipes this
+                cabinet first. The app code itself travels separately — download the .jsx file.
+              </p>
+            </div>
+
+            {/* Same rule as under the title: 2px ink, inset to the card gutter. */}
+            <div style={{ height: 2, background: T.ink, margin: "0 24px", flexShrink: 0 }} />
+            <div style={{ padding: "12px 24px 18px", display: "flex", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowData(false)}
+                style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, padding: "9px 14px", fontSize: 10, cursor: "pointer", color: T.inkSoft, fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cabinet item modal */}
+      {showGearModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) closeGearModal(); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(43,33,24,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+        >
+          <div style={{ background: T.card, width: "100%", maxWidth: 460, border: `1px solid ${T.line}`, borderRadius: D.folder.radius, overflow: "hidden", boxShadow: "6px 6px 0 rgba(43,33,24,0.55)" }}>
+            <div style={{ padding: "18px 24px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+              <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontWeight: 650, fontSize: 14, margin: 0, transform: `translateY(2px) scaleY(${D.stretch.heading})`, transformOrigin: "left center", display: "inline-block" }}>
+                {gearEditId ? "Edit Item" : "New Item"}
+              </h2>
+            </div>
+            {/* Inset to the card gutter, so it reads as a rule under the title rather
+                than a seam cutting the card edge to edge. */}
+            <div style={{ height: 2, background: T.ink, margin: "0 24px", flexShrink: 0 }} />
+
+            <div style={{ padding: "16px 24px", display: "grid", gap: 14 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={{ fontFamily: "'VT323', monospace", fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase", color: T.inkSoft }}>
+                  Name<span style={{ color: T.rust }}> *</span>
+                </span>
+                <input
+                  value={gearForm.name}
+                  onChange={(e) => setGearForm({ ...gearForm, name: e.target.value })}
+                  placeholder="e.g. Origami Dripper"
+                  style={{ padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: 0, background: "#FFFFFF", fontFamily: "'VT323', monospace", fontSize: 18, color: T.ink }}
+                />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={{ fontFamily: "'VT323', monospace", fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase", color: T.inkSoft }}>Notes</span>
+                <input
+                  value={gearForm.detail}
+                  onChange={(e) => setGearForm({ ...gearForm, detail: e.target.value })}
+                  placeholder="e.g. size 1, white, plastic"
+                  style={{ padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: 0, background: "#FFFFFF", fontFamily: "'VT323', monospace", fontSize: 18, color: T.ink }}
+                />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={{ fontFamily: "'VT323', monospace", fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase", color: T.inkSoft }}>Type</span>
+                <select
+                  value={gearForm.type}
+                  onChange={(e) => setGearForm({ ...gearForm, type: e.target.value })}
+                  style={{ padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: 0, background: "#FFFFFF", fontFamily: "'VT323', monospace", fontSize: 18, color: T.ink }}
+                >
+                  {GEAR_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div style={{ padding: "6px 24px 20px", display: "flex", gap: 8, justifyContent: "space-between" }}>
+              {gearEditId ? (
+                <button
+                  onClick={() => removeGear(gearEditId)}
+                  style={{ background: T.rust, border: `1px solid ${T.rust}`, borderRadius: D.folder.tabRadius, color: T.card, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                >
+                  Remove
+                </button>
+              ) : <span />}
+              <span style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={closeGearModal}
+                  style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, padding: "9px 14px", fontSize: 10, cursor: "pointer", color: T.inkSoft, fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="ci-btn"
+                  onClick={saveGear}
+                  disabled={!gearForm.name.trim()}
+                  style={{ background: gearForm.name.trim() ? T.bean : T.beanSoft, color: T.card, border: "none", borderRadius: D.folder.tabRadius, padding: "9px 16px", fontSize: 10, cursor: gearForm.name.trim() ? "pointer" : "not-allowed", fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                >
+                  {gearEditId ? "Save" : "Add item"}
+                </button>
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bag detail popup */}
+      {bagDetail && (() => {
+        const b = bags.find((x) => x.id === bagDetail);
+        if (!b) return null;
+        const left = remainingGrams(b, brews);
+        const start = toGrams(b.weight);
+        const bagBrews = brews.filter((x) => x.bagId === b.id).length;
+        return (
+          <div
+            onClick={(e) => { if (e.target === e.currentTarget) { setBagDetail(null); setConfirmDelete(null); } }}
+            style={{ position: "fixed", inset: 0, background: "rgba(43,33,24,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+          >
+            <div style={{ background: b.archived ? T.brownBg : T.card, width: "100%", maxWidth: 560, maxHeight: "90vh", display: "flex", flexDirection: "column", border: `1px solid ${b.archived ? T.brown : T.line}`, borderRadius: D.folder.radius, overflow: "hidden", boxShadow: "6px 6px 0 rgba(43,33,24,0.55)" }}>
+              <div style={{ padding: "18px 24px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontWeight: 650, fontSize: 14, margin: 0, transform: `translateY(2px) scaleY(${D.stretch.cardTitle})`, transformOrigin: "center", display: "inline-block" }}>
+                    {b.roaster}
+                  </h2>
+                  {/* name stretches from `center` here, so the flag needs no drop — see D.flag */}
+                  <Flag country={b.roasterCountry} size={FLAG_SIZE * D.flag.roasterScale} />
+                </div>
+                {b.archived && (
+                  <div style={{ fontSize: 15, color: T.brown, letterSpacing: "0.12em", textTransform: "uppercase", textAlign: "center", marginTop: 8 }}>
+                    Archived
+                  </div>
+                )}
+              </div>
+              {/* Inset to the card gutter, so it reads as a rule under the title rather than
+                  a seam cutting the card edge to edge. Follows the archived colour. */}
+              <div style={{ height: 2, background: b.archived ? T.brown : T.ink, margin: "0 24px", flexShrink: 0 }} />
+
+              <div style={{ padding: "16px 24px", overflowY: "auto", flex: 1 }}>
+                <div style={{ fontSize: 17, color: T.inkSoft, letterSpacing: "0.03em", textAlign: "center" }}>
+                  {[b.variety, b.processing].filter(Boolean).join(" · ") || "variety & process unlogged"}
+                </div>
+                <div style={{ fontSize: 17, color: T.bean, textTransform: "uppercase", letterSpacing: "0.08em", textAlign: "center", marginBottom: 14 }}>
+                  {b.origin ? <>{b.origin} <Flag country={b.origin} /></> : "origin unlogged"}
+                </div>
+
+                <div style={{ paddingTop: 12, borderTop: `1px dashed ${T.line}` }}>
+                  <div style={{ display: "grid", gap: 6, maxWidth: 360, margin: "0 auto" }}>
+                    {[
+                      ["Roaster country", b.roasterCountry ? <>{b.roasterCountry} <Flag country={b.roasterCountry} /></> : "—"],
+                      ["Farmer / Producer", b.producer || "—"],
+                      ["Altitude", b.altitude || "—"],
+                      ["Roasting machine", b.machine || "—"],
+                      ["Roast date", b.roastDate || "—"],
+                      ["Rested", daysSince(b.roastDate) === null ? "—" : `${daysSince(b.roastDate)} d`],
+                      ["Bag weight", b.weight ? formatWeight(b.weight) : "—"],
+                      ["Remaining", left === null ? "—" : left <= 0 ? "empty" : `${Math.round(left)} g`],
+                      ["Coffees made", bagBrews === 0 ? "—" : `${bagBrews} brew${bagBrews === 1 ? "" : "s"}`],
+                      ["Logged", b.loggedAt ? new Date(b.loggedAt).toLocaleDateString() : "—"],
+                    ].map(([label, value]) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 17 }}>
+                        <span style={{ color: T.inkSoft, letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
+                        <span style={{ color: value === "—" ? T.muted : T.ink }}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* how much is left, as a pixel gauge */}
+                {left !== null && start !== null && start > 0 && (
+                  <div style={{ maxWidth: 360, margin: "16px auto 0" }}>
+                    <div style={{ height: 12, border: `2px solid ${T.ink}`, background: "#FFFFFF", display: "flex" }}>
+                      <div style={{ width: `${Math.min(100, (left / start) * 100)}%`, background: left <= 0 ? T.rust : T.bean }} />
+                    </div>
+                    <div style={{ fontSize: 15, color: T.muted, textAlign: "center", marginTop: 4, letterSpacing: "0.04em" }}>
+                      {Math.round(left)} g of {Math.round(start)} g left
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Same rule as under the title: 2px ink, inset to the card gutter. */}
+              <div style={{ height: 2, background: T.ink, margin: "0 24px", flexShrink: 0 }} />
+              <div style={{ padding: "12px 24px 18px", display: "flex", gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
+                <span style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => toggleArchive(b.id)}
+                    style={{ background: b.archived ? T.brown : "none", border: `1px solid ${T.brown}`, borderRadius: D.folder.tabRadius, color: b.archived ? T.card : T.brown, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                  >
+                    {b.archived ? "Unarchive" : "Archive"}
+                  </button>
+                  <button
+                    onClick={() => { setBagDetail(null); openEdit(b); }}
+                    style={{ background: "none", border: `1px solid ${T.bean}`, borderRadius: D.folder.tabRadius, color: T.bean, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                  >
+                    Edit
+                  </button>
+                </span>
+                <span style={{ display: "flex", gap: 8 }}>
+                  {confirmDelete === b.id && (
+                    <button
+                      onClick={() => setConfirmDelete(null)}
+                      style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, color: T.inkSoft, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                    >
+                      No
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (confirmDelete === b.id) { removeBag(b.id); setConfirmDelete(null); setBagDetail(null); }
+                      else setConfirmDelete(b.id);
+                    }}
+                    style={{ background: confirmDelete === b.id ? T.ink : T.rust, border: `1px solid ${confirmDelete === b.id ? T.ink : T.rust}`, borderRadius: D.folder.tabRadius, color: T.card, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                  >
+                    {confirmDelete === b.id ? "Sure?" : "Remove bag"}
+                  </button>
+                  <button
+                    onClick={() => { setBagDetail(null); setConfirmDelete(null); }}
+                    style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, padding: "9px 14px", fontSize: 10, cursor: "pointer", color: T.inkSoft, fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                  >
+                    Close
+                  </button>
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Brew detail popup */}
+      {brewDetail && (() => {
+        const x = brews.find((b) => b.id === brewDetail);
+        if (!x) return null;
+        const method = METHODS.find((m) => m.key === x.method);
+        return (
+          <div
+            onClick={(e) => { if (e.target === e.currentTarget) setBrewDetail(null); }}
+            style={{ position: "fixed", inset: 0, background: "rgba(43,33,24,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+          >
+            <div style={{ background: T.card, width: "100%", maxWidth: 620, maxHeight: "90vh", display: "flex", flexDirection: "column", border: `1px solid ${T.line}`, borderRadius: D.folder.radius, overflow: "hidden", boxShadow: "6px 6px 0 rgba(43,33,24,0.55)" }}>
+              <div style={{ padding: "18px 24px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  <PixelIcon name={x.method} cell={3} />
+                  <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontWeight: 650, fontSize: 14, margin: 0, transform: `translateY(2px) scaleY(${D.stretch.button})`, transformOrigin: "left center", display: "inline-block" }}>
+                    {x.method === "orb" ? "ORB" : (method || {}).label || "Brew"}
+                  </h2>
+                </span>
+                <span style={{ fontSize: 17, color: T.muted, letterSpacing: "0.04em", flexShrink: 0 }}>
+                  {new Date(x.brewedAt).toLocaleDateString()}
+                </span>
+              </div>
+
+              {/* Inset to the card gutter, so it reads as a rule under the title rather
+                  than a seam cutting the card edge to edge. */}
+              <div style={{ height: 2, background: T.ink, margin: "0 24px", flexShrink: 0 }} />
+
+              <div style={{ padding: "16px 24px", overflowY: "auto", flex: 1 }}>
+                {/* Bean */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 3 }}>
+                  <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 11, lineHeight: 1.2, color: T.ink, transform: `scaleY(${D.stretch.cardTitle})`, transformOrigin: "center", display: "inline-block" }}>
+                    {x.roaster}
+                  </span>
+                  {/* name stretches from `center` here, so the flag needs no drop — see D.flag */}
+                  <Flag country={x.roasterCountry} size={FLAG_SIZE * D.flag.roasterScale} />
+                </div>
+                <div style={{ fontSize: 17, color: T.inkSoft, letterSpacing: "0.03em", textAlign: "center" }}>
+                  {[x.variety, x.processing].filter(Boolean).join(" · ") || "variety & process unlogged"}
+                </div>
+                <div style={{ fontSize: 17, color: T.bean, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14, textAlign: "center" }}>
+                  {x.origin ? <>{x.origin} <Flag country={x.origin} /></> : "origin unlogged"}
+                </div>
+
+                {/* Brew data — metrics on the left, cabinet gear on the right, split by a dashed rule.
+                    Label/value pairs sit close together so the two blocks fit side by side without scrolling. */}
+                <div style={{ paddingTop: 12, borderTop: `1px dashed ${T.line}` }}>
+                {(() => {
+                  const grid = { fontSize: 17, display: "grid", gridTemplateColumns: "auto auto", columnGap: 12, rowGap: 6, alignContent: "start" };
+                  const row = (label, value) => (
+                    <React.Fragment key={label}>
+                      <span style={{ color: T.inkSoft, letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</span>
+                      <span style={{ color: value === "—" ? T.muted : T.ink, textAlign: "right" }}>{value}</span>
+                    </React.Fragment>
+                  );
+                  const metricRows = [
+                    ["Roast date", x.roastDate || "—"],
+                    ["Rested at brew", restedAt(x.roastDate, x.brewedAt)],
+                    ["Dose", x.recipe && num(x.recipe.dose) ? `${x.recipe.dose} g` : "—"],
+                    ["Ratio", x.recipe && num(x.recipe.ratio) ? `1:${x.recipe.ratio}` : "—"],
+                    [x.method === "espresso" ? "Yield" : "Water", x.recipe && num(x.recipe.water) ? `${x.recipe.water} g` : "—"],
+                    ...(x.method === "espresso"
+                      ? [["Peak pressure", x.recipe && num(x.recipe.pressure) ? `${x.recipe.pressure} bar` : "—"],
+                         ["Brew time", x.recipe && num(x.recipe.seconds) ? fmtSeconds(x.recipe.seconds) : "—"]]
+                      : []),
+                  ];
+                  const gs = x.recipe ? x.recipe.grindSize : "";
+                  const gearRows = [
+                    ["Grinder", x.recipe && x.recipe.grinder ? x.recipe.grinder : "—"],
+                    ["Grind size", gs !== undefined && gs !== null && String(gs).trim() !== "" ? String(gs) : "—"],
+                    [x.method === "espresso" ? "Machine" : "Dripper", x.recipe && x.recipe.brewer ? x.recipe.brewer : "—"],
+                  ];
+                  const hasGear = gearRows.some(([, v]) => v !== "—");
+                  // alignItems is "stretch", not "flex-start": the gear column is shorter than the
+                  // metrics column, and its left border IS the divider — stretching runs that border
+                  // the full height so it sits flush top and bottom instead of stopping short.
+                  return (
+                    <div style={{ display: "flex", justifyContent: "center", alignItems: "stretch", gap: 18, flexWrap: "wrap" }}>
+                      <div style={grid}>{metricRows.map(([l, v]) => row(l, v))}</div>
+                      {hasGear && (
+                        <div style={{ ...grid, borderLeft: `1px dashed ${T.line}`, paddingLeft: 18 }}>
+                          {gearRows.map(([l, v]) => row(l, v))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                </div>
+
+                {/* Pour schedule */}
+                {x.method !== "espresso" && x.recipe && ((x.recipe.pours && x.recipe.pours.some((pr) => num(pr.to))) || x.recipe.tbt) && (
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${T.line}` }}>
+                    <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.inkSoft, marginBottom: 4, textAlign: "center" }}>Pour structure</div>
+                    {(() => {
+                      let cum = 0;
+                      return (x.recipe.pours || []).filter((pr) => num(pr.to)).map((pr, pi) => {
+                        cum += num(pr.to) || 0;
+                        return (
+                          <div key={pi} style={{ fontSize: 17, color: T.ink, lineHeight: 1.35, textAlign: "center" }}>
+                            {pr.to} g{pi === 0 && num(pr.sec) ? ` · bloom ${pr.sec}s` : ""}
+                            <span style={{ color: T.muted }}> · {Math.round(cum)} g total</span>
+                          </div>
+                        );
+                      });
+                    })()}
+                    <div style={{ fontSize: 17, textAlign: "center", marginTop: 7, letterSpacing: "0.04em" }}>
+                      <span style={{ color: T.inkSoft, textTransform: "uppercase" }}>Total brew time </span>
+                      <span style={{ color: x.recipe.tbt ? T.ink : T.muted }}>{x.recipe.tbt || "—"}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes — sits above the sensory web */}
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${T.line}` }}>
+                  <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.inkSoft, marginBottom: 6, textAlign: "center" }}>
+                    Notes
+                  </div>
+                  {x.notes && x.notes.trim() ? (
+                    // pre-wrap so the writer's own line breaks survive; break-word so an
+                    // unbroken string can't push the popup wider than its max.
+                    <div style={{ fontSize: 17, color: T.ink, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
+                      {x.notes}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 17, color: T.muted, textAlign: "center", padding: "6px 0" }}>No notes yet</div>
+                  )}
+                </div>
+
+                {/* Review web */}
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${T.line}` }}>
+                  {x.tasting ? (
+                    <>
+                      <MiniRadar scores={x.tasting} />
+                      <div style={{ fontSize: 17, color: T.rust, textAlign: "center", marginTop: 4 }}>
+                        {TASTE_AXES.filter((k) => (x.tasting[k] || 0) > 0).sort((a, b) => x.tasting[b] - x.tasting[a]).slice(0, 3).map((k) => `${k} ${x.tasting[k]}`).join(" · ") || "reviewed"}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 17, color: T.muted, textAlign: "center", padding: "12px 0" }}>Not reviewed yet</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Same rule as under the title: 2px ink, inset to the card gutter. */}
+              <div style={{ height: 2, background: T.ink, margin: "0 24px", flexShrink: 0 }} />
+              <div style={{ padding: "12px 24px 18px", display: "flex", gap: 8, justifyContent: "space-between" }}>
+                <button
+                  onClick={() => { removeBrew(x.id); setBrewDetail(null); }}
+                  style={{ background: T.rust, border: `1px solid ${T.rust}`, borderRadius: D.folder.tabRadius, color: T.card, cursor: "pointer", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "9px 12px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                >
+                  Delete
+                </button>
+                <span style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => setBrewDetail(null)}
+                    style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, padding: "9px 14px", fontSize: 10, cursor: "pointer", color: T.inkSoft, fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                  >
+                    Close
+                  </button>
+                  <button
+                    className="ci-btn"
+                    onClick={() => { setBrewDetail(null); openReview(x); }}
+                    style={{ background: T.bean, color: T.card, border: "none", borderRadius: D.folder.tabRadius, padding: "9px 14px", fontSize: 10, cursor: "pointer", fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                  >
+                    {x.tasting || (x.notes && x.notes.trim()) ? "Edit review" : "Review"}
+                  </button>
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Bean picker modal */}
+      {showBrewModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) closeBrewModal(); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(43,33,24,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+        >
+          {/* Rounded to the folder's radius, and overflow hidden so the header rule and the
+              scrolling body are clipped by those corners instead of squaring them off again. */}
+          <div style={{ background: T.card, width: "100%", maxWidth: brewStep === 5 ? 682 : 540, maxHeight: "90vh", display: "flex", flexDirection: "column", border: `1px solid ${T.line}`, borderRadius: D.folder.radius, overflow: "hidden", boxShadow: "6px 6px 0 rgba(43,33,24,0.55)" }}>
+            <div style={{ padding: "20px 26px 16px" }}>
+              <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontWeight: 650, fontSize: 15, margin: 0, transform: `translateY(2px) scaleY(${D.stretch.button})`, transformOrigin: "left center", display: "inline-block" }}>
+                {brewStep === 1 ? "Pick Your Beans" : brewStep === 2 ? "Method" : brewStep === 3 ? "Recipe"
+                  : brewStep === 4 ? (reviewReturning ? "Review" : "Nice Brew")
+                  : brewStep === 5 ? "Sensory Web" : "Notes"}
+              </h2>
+            </div>
+            {/* Inset to the card's own 26px gutter, so it reads as a rule under the title
+                rather than a seam cutting the card edge to edge. */}
+            <div style={{ height: 2, background: T.ink, margin: "0 26px", flexShrink: 0 }} />
+
+            <div style={{ padding: "14px 26px", overflowY: "auto", flex: 1 }}>
+              {brewStep === 4 ? (
+                <div style={{ textAlign: "center", padding: "22px 0 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+                    <PixelIcon name={brewMethod} cell={6} />
+                  </div>
+                  <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 12, lineHeight: 1.6, margin: "0 0 10px", color: T.ink, transform: `scaleY(${D.stretch.button})`, transformOrigin: "center", display: "inline-block" }}>
+                    {reviewReturning ? "Review this brew" : "Brew logged!"}
+                  </p>
+                  <p style={{ fontSize: 19, color: T.inkSoft, margin: "0 0 18px", letterSpacing: "0.04em" }}>
+                    How would you like to review it?
+                  </p>
+                  {/* The scaleY stretch goes on the LABEL, not the button. On the box it
+                      inflates the rendered height ~20% past the layout height, and the two
+                      buttons swell into the gap until they look like one divided block. */}
+                  <div style={{ display: "grid", gap: 10, maxWidth: 300, margin: "0 auto" }}>
+                    <button
+                      onClick={() => setBrewStep(6)}
+                      style={{ background: "none", border: `1px solid ${T.bean}`, borderRadius: D.folder.tabRadius, color: T.bean, cursor: "pointer", fontSize: 11, lineHeight: 1.4, fontFamily: "'Press Start 2P', monospace", padding: "17px 14px" }}
+                    >
+                      <span style={{ display: "inline-block", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}>
+                        Notes
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setBrewStep(5)}
+                      style={{ background: "none", border: `1px solid ${T.bean}`, borderRadius: D.folder.tabRadius, color: T.bean, cursor: "pointer", fontSize: 11, lineHeight: 1.4, fontFamily: "'Press Start 2P', monospace", padding: "17px 14px" }}
+                    >
+                      <span style={{ display: "inline-block", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}>
+                        Sensory Web
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              ) : brewStep === 5 ? (
+                <TastingRadar scores={tasting} onChange={setTasting} />
+              ) : brewStep === 6 ? (
+                <div>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    style={{ width: "100%", height: 250, boxSizing: "border-box", padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: 0, background: "#FFFFFF", fontFamily: "'VT323', monospace", fontSize: 18, lineHeight: 1.45, color: T.ink, resize: "vertical" }}
+                  />
+                </div>
+              ) : brewStep === 3 ? (
+                <div>
+                  {/* Dose / ratio / water — edit any one, the others follow */}
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 14, marginBottom: 6 }}>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={recipeLabel}>Coffee (g)</span>
+                      <input type="number" min="0" step="0.1" value={recipe.dose} onChange={setRecipeField("dose")} placeholder="18" style={recipeInput} />
+                    </label>
+                    <span style={{ fontSize: 20, color: T.muted, paddingBottom: 6 }}>×</span>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={recipeLabel}>Ratio 1:</span>
+                      <input type="number" min="0" step="0.1" value={recipe.ratio} onChange={setRecipeField("ratio")} placeholder="16" style={recipeInput} />
+                    </label>
+                    <span style={{ fontSize: 20, color: T.muted, paddingBottom: 6 }}>=</span>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={recipeLabel}>{brewMethod === "espresso" ? "Yield (g)" : "Water (g)"}</span>
+                      <input type="number" min="0" step="1" value={recipe.water} onChange={setRecipeField("water")} placeholder="288" style={{ ...recipeInput, borderColor: T.bean, color: T.bean }} />
+                    </label>
+                  </div>
+                  <p style={{ fontSize: 15, color: T.muted, margin: "0 0 6px", letterSpacing: "0.04em" }}>
+                    Edit any field — the other two follow.
+                  </p>
+                  {(() => {
+                    const bag = bags.find((b) => b.id === brewPick);
+                    const left = bag ? remainingGrams(bag, brews) : null;
+                    const dose = num(recipe.dose);
+                    if (left === null || !dose) return <div style={{ marginBottom: 16 }} />;
+                    const over = dose > left;
+                    return (
+                      <p style={{ fontSize: 17, color: over ? T.rust : T.inkSoft, margin: "0 0 16px", letterSpacing: "0.04em" }}>
+                        {over
+                          ? `Only ${Math.round(left)} g left in this bag.`
+                          : `${Math.round(left)} g in bag → ${Math.round(left - dose)} g after this brew.`}
+                      </p>
+                    );
+                  })()}
+
+                  {/* Pourover + ORB: pour structure */}
+                  {brewMethod !== "espresso" && (
+                    <>
+                      <div style={{ ...recipeLabel, marginBottom: 8 }}>Pour structure</div>
+                      {recipe.pours.map((pour, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 8, fontSize: 17, color: T.inkSoft, lineHeight: 1.4 }}>
+                          <span>Pour</span>
+                          <input type="number" min="0" step="1" value={pour.to} onChange={setPour(i, "to")} placeholder={i === 0 && num(recipe.dose) ? String(Math.round(num(recipe.dose) * 2)) : ""} style={{ ...recipeInput, width: 54 }} />
+                          {i === 0 ? (
+                            <>
+                              <span>g of water and bloom for</span>
+                              <input type="number" min="0" step="1" value={pour.sec} onChange={setPour(i, "sec")} placeholder="45" style={{ ...recipeInput, width: 48 }} />
+                              <span>seconds</span>
+                            </>
+                          ) : (
+                            <span>g of water</span>
+                          )}
+                          {recipe.pours.length > 1 && (
+                            <button onClick={() => removePour(i)} title="Remove pour" style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 16, fontFamily: "'VT323', monospace", padding: "0 4px" }}>✕</button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        onClick={addPour}
+                        disabled={waterTarget > 0 && remaining <= 0}
+                        style={{ background: "none", border: `1px solid ${remaining > 0 || !waterTarget ? T.bean : T.line}`, borderRadius: D.folder.tabRadius, color: remaining > 0 || !waterTarget ? T.bean : T.muted, cursor: remaining > 0 || !waterTarget ? "pointer" : "not-allowed", fontSize: 10, fontFamily: "'Press Start 2P', monospace", padding: "7px 10px", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+                      >
+                        + Add pour
+                      </button>
+                      {waterTarget > 0 && (
+                        <div style={{ fontSize: 17, color: remaining > 0 ? T.inkSoft : T.bean, letterSpacing: "0.04em", marginTop: 10 }}>
+                          {remaining > 0
+                            ? `${remaining} g of water remaining out of ${Math.round(waterTarget)} g`
+                            : `All ${Math.round(waterTarget)} g of water poured`}
+                        </div>
+                      )}
+                      <div style={{ marginBottom: 18 }} />
+
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4, width: 120 }}>
+                        <span style={recipeLabel}>Total brew time</span>
+                        <input value={recipe.tbt} onChange={setRecipeField("tbt")} placeholder="MM:SS" style={{ ...recipeInput, width: 90 }} />
+                      </label>
+                    </>
+                  )}
+
+                  {/* Espresso: pressure + shot time */}
+                  {brewMethod === "espresso" && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={recipeLabel}>Peak pressure (bar)</span>
+                        <input type="number" min="0" step="0.1" value={recipe.pressure} onChange={setRecipeField("pressure")} placeholder="9" style={recipeInput} />
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={recipeLabel}>Brew time (sec)</span>
+                        <input type="number" min="0" step="1" value={recipe.seconds} onChange={setRecipeField("seconds")} placeholder="28" style={recipeInput} />
+                        {num(recipe.seconds) ? (
+                          <span style={{ fontSize: 15, color: T.muted, textAlign: "center" }}>{fmtSeconds(recipe.seconds)}</span>
+                        ) : null}
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Gear — grinder, grind size, and dripper/brewer pulled from the Cabinet */}
+                  <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px dashed ${T.line}` }}>
+                    <div style={{ ...recipeLabel, marginBottom: 8 }}>Gear</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 14 }}>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={recipeLabel}>Grinder</span>
+                        <select value={recipe.grinderId} onChange={setRecipeField("grinderId")} style={{ ...recipeInput, width: 172, textAlign: "left" }}>
+                          <option value="">—</option>
+                          {grinderOptions.map((g) => (
+                            <option key={g.id} value={g.id}>{g.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={recipeLabel}>Grind size</span>
+                        <input type="number" min="0" step="any" inputMode="decimal" value={recipe.grindSize} onChange={setRecipeField("grindSize")} placeholder="e.g. 3.2" style={recipeInput} />
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={recipeLabel}>Dripper / Brewer</span>
+                        <select value={recipe.brewerId} onChange={setRecipeField("brewerId")} style={{ ...recipeInput, width: 172, textAlign: "left" }}>
+                          <option value="">—</option>
+                          {brewerOptions.map((g) => (
+                            <option key={g.id} value={g.id}>{g.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    {gear.length === 0 && (
+                      <p style={{ fontSize: 15, color: T.muted, margin: "8px 0 0", letterSpacing: "0.04em" }}>
+                        Add grinders and brewers in the Cabinet to pick them here.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : brewStep === 2 ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {METHODS.map((m) => {
+                    const picked = brewMethod === m.key;
+                    return (
+                      <div
+                        key={m.key}
+                        onClick={() => setBrewMethod(m.key)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
+                          padding: "12px 14px",
+                          background: picked ? "#E4E7D6" : "transparent",
+                          border: `1px solid ${picked ? T.bean : T.line}`,
+                          borderLeft: `4px solid ${picked ? T.bean : T.line}`,
+                        }}
+                      >
+                        <PixelIcon name={m.key} cell={4} />
+                        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 10, lineHeight: 1.4, color: picked ? T.ink : T.inkSoft, transform: `scaleY(${D.stretch.button})`, transformOrigin: "left center", display: "inline-block" }}>
+                          {m.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : brewableBags.length === 0 ? (
+                <p style={{ color: T.inkSoft, fontSize: 18, margin: "12px 0" }}>
+                  Nothing on the shelf — log or unarchive a bag first.
+                </p>
+              ) : (
+                brewableBags.map((b) => {
+                  const picked = brewPick === b.id;
+                  const left = remainingGrams(b, brews);
+                  const empty = left !== null && left <= 0;
+                  return (
+                    <div
+                      key={b.id}
+                      onClick={() => !empty && setBrewPick(b.id)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8, cursor: empty ? "not-allowed" : "pointer",
+                        padding: "9px 11px", marginBottom: 6,
+                        opacity: empty ? 0.5 : 1,
+                        background: picked ? "#E4E7D6" : "transparent",
+                        border: `1px solid ${picked ? T.bean : T.line}`,
+                        borderLeft: `4px solid ${picked ? T.bean : T.line}`,
+                      }}
+                    >
+                      <span style={{ color: picked ? T.bean : T.muted, fontSize: 17, flexShrink: 0 }}>{picked ? "●" : "○"}</span>
+                      <span style={{ minWidth: 0, flex: 1 }}>
+                        <span style={{ display: "block", fontFamily: "'Press Start 2P', monospace", fontSize: 9, lineHeight: 1.3, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", transform: `scaleY(${D.stretch.button})`, transformOrigin: "left top" }}>
+                          {b.roaster}
+                        </span>
+                        <span style={{ display: "block", fontSize: 16, lineHeight: 1.2, color: T.inkSoft, marginTop: 3 }}>
+                          {[b.origin, b.processing].filter(Boolean).join(" · ") || "no details logged"}
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 15, color: T.muted, flexShrink: 0, textAlign: "right", letterSpacing: "0.04em", lineHeight: 1.2 }}>
+                        {b.roastDate || "—"}
+                        <span style={{ display: "block", color: left !== null && left <= 0 ? T.rust : T.inkSoft }}>
+                          {left === null ? "" : left <= 0 ? "EMPTY" : `${Math.round(left)} g left`}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Same rule as under the title: 2px ink, inset to the card gutter. */}
+            <div style={{ height: 2, background: T.ink, margin: "0 26px", flexShrink: 0 }} />
+            <div style={{ padding: "12px 26px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => {
+                  if (brewStep === 1) closeBrewModal();
+                  else if (brewStep === 4) closeBrewModal();          // "Later"
+                  else if (brewStep === 5 || brewStep === 6) setBrewStep(4);  // back to the picker
+                  else setBrewStep(brewStep - 1);
+                }}
+                style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, padding: "10px 18px", fontSize: 10, cursor: "pointer", color: T.inkSoft, fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+              >
+                {brewStep === 1 ? "Cancel" : brewStep === 4 ? "Later" : "Back"}
+              </button>
+              {/* No advance button on the picker: its two choices ARE the forward paths,
+                  and a "Next" here would just be a third, unlabelled way into the web. */}
+              {brewStep !== 4 && (
+              <button
+                className="ci-btn"
+                onClick={() => {
+                  if (brewStep === 3) addBrew();
+                  else if (brewStep === 5) saveTasting();
+                  else if (brewStep === 6) saveNotes();
+                  else setBrewStep(brewStep + 1);
+                }}
+                disabled={!stepReady}
+                style={{ background: stepReady ? T.bean : T.beanSoft, color: T.card, border: "none", borderRadius: D.folder.tabRadius, padding: "10px 20px", fontSize: 10, cursor: stepReady ? "pointer" : "not-allowed", fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+              >
+                {brewStep === 3 ? "Log brew" : brewStep === 5 ? "Save review" : brewStep === 6 ? "Save notes" : "Next"}
+              </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New-bag / edit-bag modal */}
+      {showModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(43,33,24,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+        >
+          {/* No `overflow: hidden` here, unlike the other cards: this one scrolls itself and
+              deliberately keeps overflowX visible for the date picker. */}
+          <div style={{ background: T.card, borderRadius: D.folder.radius, width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto", overflowX: "visible", border: `1px solid ${T.line}`, boxShadow: "6px 6px 0 rgba(43,33,24,0.55)" }}>
+            <div style={{ padding: "20px 26px 16px" }}>
+              <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontWeight: 650, fontSize: 15, margin: 0, transform: `translateY(2px) scaleY(${D.stretch.button})`, transformOrigin: "left center", display: "inline-block" }}>{editingId ? "Edit Bag" : "New Bag"}</h2>
+            </div>
+            {/* Inset to the card gutter, so it reads as a rule under the title rather
+                than a seam cutting the card edge to edge. */}
+            <div style={{ height: 2, background: T.ink, margin: "0 26px", flexShrink: 0 }} />
+
+            <div style={{ padding: "18px 26px", display: "grid", gridTemplateColumns: narrow ? "1fr" : "1fr 1fr", gap: "14px 16px", overflow: "visible" }}>
+              {FIELDS.map((f) => (
+                <label key={f.key} style={{ display: "flex", flexDirection: "column", gap: 5, gridColumn: f.key === "roaster" ? "1 / -1" : "auto", position: f.type === "date" ? "relative" : "static" }}>
+                  <span style={{ fontFamily: "'VT323', monospace", fontSize: 14, letterSpacing: "0.06em", textTransform: "uppercase", color: T.inkSoft }}>
+                    {f.label}{f.required && <span style={{ color: T.rust }}> *</span>}
+                  </span>
+                  {f.type === "date" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setCalOpen((v) => !v)}
+                        style={{
+                          padding: "10px 12px",
+                          border: `1px solid ${calOpen ? T.bean : T.line}`,
+                          borderRadius: 0,
+                          background: "#FFFFFF",
+                          fontFamily: "'VT323', monospace",
+                          fontSize: 17,
+                          color: form[f.key] ? T.ink : T.muted,
+                          cursor: "pointer",
+                          textAlign: "left",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        {form[f.key] || "pick a date"}
+                        <span style={{ color: T.bean, fontSize: 15 }}>▦</span>
+                      </button>
+                      {calOpen && (
+                        <PixelCalendar
+                          value={form[f.key]}
+                          onPick={(iso) => setForm((prev) => ({ ...prev, [f.key]: iso }))}
+                          onClose={() => setCalOpen(false)}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <input
+                      type={f.type || "text"}
+                      value={form[f.key]}
+                      onChange={set(f.key)}
+                      placeholder={f.placeholder || ""}
+                      list={f.list ? "process-options" : undefined}
+                      style={{ padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: 0, background: "#FFFFFF", fontFamily: "'VT323', monospace", fontSize: 17, color: T.ink }}
+                    />
+                  )}
+                </label>
+              ))}
+              <datalist id="process-options">
+                {PROCESS_OPTIONS.map((p) => <option key={p} value={p} />)}
+              </datalist>
+            </div>
+
+            <div style={{ padding: "6px 26px 22px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={closeModal}
+                style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: D.folder.tabRadius, padding: "10px 18px", fontSize: 10, cursor: "pointer", color: T.inkSoft, fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+              >
+                Cancel
+              </button>
+              <button
+                className="ci-btn"
+                onClick={saveBag}
+                disabled={!form.roaster.trim()}
+                style={{ background: form.roaster.trim() ? T.bean : T.beanSoft, color: T.card, border: "none", borderRadius: D.folder.tabRadius, padding: "10px 20px", fontSize: 10, cursor: form.roaster.trim() ? "pointer" : "not-allowed", fontFamily: "'Press Start 2P', monospace", transform: `scaleY(${D.stretch.button})`, transformOrigin: "center" }}
+              >
+                {editingId ? "Save changes" : "Add to inventory"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MOUNT
+// The boot placeholder inside #root is replaced by the first render.
+// ═══════════════════════════════════════════════════════════════════
+ReactDOM.createRoot(document.getElementById("root")).render(<CoffeeInventory />);
+</script>
+
+</body>
+</html>
